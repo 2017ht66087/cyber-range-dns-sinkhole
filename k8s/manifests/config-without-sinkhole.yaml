@@ -1,0 +1,13 @@
+# Variant B: DNS sinkhole DISABLED (uncontained).
+# Malicious lookups are forwarded to the attacker-aware external resolver and
+# resolve to the real attacker IP -> the "what goes wrong" path.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: range-mode
+  namespace: cyber-range
+data:
+  SINKHOLE_ENABLED: "false"
+  SINKHOLE_IP: "10.255.255.10"
+  MALICIOUS_DOMAIN: "teq.xyz.com"
+  ALT_DOMAIN: "abc.com"

@@ -1,0 +1,13 @@
+# Variant A: DNS sinkhole ENABLED (contained).
+# Malicious lookups are intercepted by firewall-sim, answered with SINKHOLE_IP,
+# and logged to the sinkhole capture endpoint.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: range-mode
+  namespace: cyber-range
+data:
+  SINKHOLE_ENABLED: "true"
+  SINKHOLE_IP: "10.255.255.10"
+  MALICIOUS_DOMAIN: "teq.xyz.com"
+  ALT_DOMAIN: "abc.com"

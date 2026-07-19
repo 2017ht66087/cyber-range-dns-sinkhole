@@ -1,0 +1,33 @@
+# Single infected-pc used by BOTH variants (ConfigMap-driven, like firewall-sim).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infected-pc
+  namespace: cyber-range
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: infected-pc
+  template:
+    metadata:
+      labels:
+        app: infected-pc
+    spec:
+      containers:
+      - name: client
+        image: infected-pc:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: range-mode
+        env:
+        - name: DNS_SERVER
+          value: "firewall-sim.cyber-range.svc.cluster.local"
+        - name: DNS_SERVER_PORT
+          value: "8053"
+        - name: BEACON_INTERVAL
+          value: "20"
+        resources:
+          requests: { cpu: "10m", memory: "32Mi" }
+          limits:   { cpu: "200m", memory: "128Mi" }

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-dns
+  namespace: dns-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: internal-dns
+  template:
+    metadata:
+      labels:
+        app: internal-dns
+    spec:
+      containers:
+      - name: dns
+        image: internal-dns:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ALT_DOMAIN
+          value: "abc.com"
+        - name: BENIGN_IP
+          value: "10.0.0.50"
+        - name: MALICIOUS_DOMAIN
+          value: "teq.xyz.com"
+        ports:
+        - containerPort: 53
+          protocol: UDP
+        - containerPort: 53
+          protocol: TCP
+        resources:
+          requests: { cpu: "10m", memory: "32Mi" }
+          limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-dns
+  namespace: dns-system
+spec:
+  selector:
+    app: internal-dns
+  ports:
+  - name: dns-udp
+    port: 53
+    targetPort: 53
+    protocol: UDP
+  - name: dns-tcp
+    port: 53
+    targetPort: 53
+    protocol: TCP

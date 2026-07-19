@@ -1,0 +1,63 @@
+---
+# Master playbook. Configures each zone's guests to the design in the README.
+# Copies the vetted config files from ../config into each service.
+
+- name: Sinkhole resolver (Path A)
+  hosts: svc-sink
+  become: true
+  tasks:
+    - name: Install unbound
+      package: { name: unbound, state: present }
+    - name: Deploy sinkhole zone config
+      copy:
+        src: ../config/unbound-sinkhole.conf
+        dest: /etc/unbound/unbound.conf.d/sinkhole.conf
+      notify: restart unbound
+    - name: Sink listener (dead-end web) for callback capture
+      package: { name: nginx, state: present }
+  handlers:
+    - name: restart unbound
+      service: { name: unbound, state: restarted }
+
+- name: External / mock-internet DNS (Path B)
+  hosts: ext-dns
+  become: true
+  tasks:
+    - name: Install dnsmasq
+      package: { name: dnsmasq, state: present }
+    - name: Deploy external DNS config
+      copy: { src: ../config/dnsmasq-external.conf, dest: /etc/dnsmasq.d/external.conf }
+      notify: restart dnsmasq
+  handlers:
+    - name: restart dnsmasq
+      service: { name: dnsmasq, state: restarted }
+
+- name: Mock internet services
+  hosts: ext-inetsim
+  become: true
+  tasks:
+    - name: Install inetsim
+      package: { name: inetsim, state: present }
+    - name: Deploy inetsim config
+      copy: { src: ../config/inetsim.conf, dest: /etc/inetsim/inetsim.conf }
+      notify: restart inetsim
+  handlers:
+    - name: restart inetsim
+      service: { name: inetsim, state: restarted }
+
+- name: Central logging (Wazuh manager / rsyslog)
+  hosts: svc-log
+  become: true
+  tasks:
+    - name: Ensure rsyslog receiver enabled
+      debug: { msg: "Install Wazuh manager or Graylog here; open 514/udp,1514/tcp,443." }
+
+- name: Endpoints - install log/Sysmon agents + stage benign beacon
+  hosts: endpoints
+  tasks:
+    - name: Stage benign beacon (NOT auto-run)
+      win_copy:
+        src: ../scenario/benign-beacon.ps1
+        dest: C:\range\benign-beacon.ps1
+    - name: Note
+      debug: { msg: "Install Wazuh/Sysmon agent -> forward to 10.10.20.20." }

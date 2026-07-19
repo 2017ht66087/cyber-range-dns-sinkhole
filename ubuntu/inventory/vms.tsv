@@ -1,0 +1,19 @@
+# Range VMs for KVM/libvirt. base = qcow2 base image name under $CR_IMAGES_DIR.
+# nets = comma-separated libvirt networks (order = eth order). tier = boot order.
+# Base images must be PRE-PROVISIONED with required packages (range is isolated;
+# no internet for apt). cloud-init only drops config + starts services.
+# name	role	base	osvariant	vcpu	mem_mb	tier	nets	ip
+SEC-GW	firewall	pfsense.qcow2	freebsd13.0	2	2048	1	range-mgmt,range-servers,range-users,range-attacker,range-external,range-soc	per-leg-.1
+SOC-SEConion	siem	securityonion.qcow2	ubuntu22.04	4	8192	2	range-soc	10.10.60.10
+SVC-LOG	logging	ubuntu22.qcow2	ubuntu22.04	2	4096	2	range-servers	10.10.20.20
+SOC-DASH	dashboards	ubuntu22.qcow2	ubuntu22.04	2	4096	2	range-soc	10.10.60.20
+MGMT-JUMP	bastion	debian12.qcow2	debian12	2	2048	3	range-mgmt	10.10.10.10
+MGMT-ORCH	ansible	debian12.qcow2	debian12	2	2048	3	range-mgmt	10.10.10.20
+MGMT-BKP	backup	debian12.qcow2	debian12	1	2048	3	range-mgmt	10.10.10.30
+SVC-DC	ad-dns	win2022.qcow2	win2k22	2	4096	4	range-servers	10.10.20.10
+SVC-SINK	sinkhole	debian12.qcow2	debian12	1	1024	4	range-servers	10.10.20.11
+EXT-DNS	ext-dns	debian12.qcow2	debian12	1	1024	5	range-external	10.10.50.53
+EXT-INETSIM	mock-inet	debian12.qcow2	debian12	2	2048	5	range-external	10.10.50.80
+ATK-C2	attacker	kali.qcow2	generic	2	2048	5	range-attacker	10.10.40.10
+EP-CLEAN	endpoint	win10.qcow2	win10	2	4096	6	range-users	dhcp-.100
+EP-INFECTED	endpoint	win10.qcow2	win10	2	4096	6	range-users	dhcp-.101

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cyber-range
+  labels:
+    kubernetes.io/metadata.name: cyber-range
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dns-system
+  labels:
+    kubernetes.io/metadata.name: dns-system

@@ -1,0 +1,13 @@
+# Base image build manifest. Consumed by build-images.sh.
+# type: cloud        -> download official cloud qcow2 + virt-customize (FULLY AUTOMATED)
+#       opnsense-img -> download OPNsense serial .img.bz2 + convert (AUTOMATED, no installer)
+#       iso-install  -> create blank disk + boot ISO installer (ASSISTED; you supply ISO)
+# For iso-install rows the 'source' column names the ENV VAR that must hold the ISO path.
+# name	type	os_variant	source	size_gb
+debian12	cloud	debian12	https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2	20
+ubuntu22	cloud	ubuntu22.04	https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img	40
+kali	cloud	generic	https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2	20
+opnsense	opnsense-img	freebsd13.0	https://mirrors.nycbug.org/pub/opnsense/releases/mirror/OPNsense-24.7-serial-amd64.img.bz2	20
+securityonion	iso-install	ubuntu22.04	SO_ISO	200
+win2022	iso-install	win2k22	WIN2022_ISO	60
+win10	iso-install	win10	WIN10_ISO	60

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sinkhole
+  namespace: cyber-range
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sinkhole
+  template:
+    metadata:
+      labels:
+        app: sinkhole
+    spec:
+      containers:
+      - name: sinkhole
+        image: sinkhole:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        resources:
+          requests: { cpu: "10m", memory: "32Mi" }
+          limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sinkhole
+  namespace: cyber-range
+spec:
+  selector:
+    app: sinkhole
+  ports:
+  - port: 8080
+    targetPort: 8080

@@ -1,0 +1,9 @@
+# Isolated libvirt networks. All /24. No <forward> => no route to the internet.
+# access=yes -> host gets a bridge IP (.2) for admin/analyst; access=no -> blind L2 segment.
+# name	bridge	cidr	host_ip	access	zone
+range-mgmt	virbr-rmgmt	10.10.10.0/24	10.10.10.2	yes	MGMT
+range-servers	virbr-rsrv	10.10.20.0/24	-	no	SERVERS
+range-users	virbr-rusr	10.10.30.0/24	-	no	USERS
+range-attacker	virbr-ratk	10.10.40.0/24	-	no	ATTACKER
+range-external	virbr-rext	10.10.50.0/24	-	no	EXTERNAL
+range-soc	virbr-rsoc	10.10.60.0/24	10.10.60.2	yes	SOC

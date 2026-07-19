@@ -1,0 +1,96 @@
+# Egress lockdown for the cyber-range namespace.
+#
+# NOTE: k3s enforces NetworkPolicy via its built-in controller. On a CNI that
+# does NOT enforce policy these become no-ops (the range still works, just
+# without containment). See README.
+#
+# Design: default-deny egress, then re-open only the paths the exercise needs:
+#   * every pod  -> CoreDNS (kube-system:53)      resolve *.svc.cluster.local
+#   * infected-pc -> firewall-sim:8053            malicious DNS lookups
+#   * firewall-sim -> dns-system:53               upstream forwarding
+#   * firewall-sim -> sinkhole:8080               capture notifications
+# The infected host's actual C2 callback (to SINKHOLE_IP / attacker IP, both
+# off-cluster) is intentionally left denied -> that IS the containment.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: cyber-range
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-coredns-egress
+  namespace: cyber-range
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-infected-to-firewall
+  namespace: cyber-range
+spec:
+  podSelector:
+    matchLabels:
+      app: infected-pc
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: firewall-sim
+    ports:
+    - port: 8053
+      protocol: UDP
+    - port: 8053
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-firewall-upstreams
+  namespace: cyber-range
+spec:
+  podSelector:
+    matchLabels:
+      app: firewall-sim
+  policyTypes:
+  - Egress
+  egress:
+  # upstream DNS resolvers in dns-system
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: dns-system
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  # sinkhole capture endpoint (same namespace)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: sinkhole
+    ports:
+    - port: 8080
+      protocol: TCP
