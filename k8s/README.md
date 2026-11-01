@@ -13,35 +13,45 @@ The container image is the same for both — only the `range-mode` ConfigMap cha
 
 ## Architecture
 
+The consolidated host → VM → namespace picture and the step-by-step data/log
+flows (sinkhole ON, sinkhole OFF, corp 3-tier, opt-in lateral) live in the
+kit [README](../README.md#architecture). This page is the k3s deploy detail.
+
 ```
- namespace: cyber-range                          namespace: dns-system
- ┌───────────────┐   DNS :8053   ┌───────────────┐   :53   ┌───────────────┐
- │  infected-pc  │ ────────────► │  firewall-sim │ ──────► │  internal-dns │  (benign)
- │ (beaconing)   │               │ (policy       │         └───────────────┘
- └───────┬───────┘               │  engine,      │   :53   ┌───────────────┐
-         │ callback (denied)     │  ConfigMap)   │ ──────► │  external-dns │  (attacker C2)
-         ▼                       └──────┬────────┘         └───────────────┘
-   SINKHOLE_IP / attacker              │ capture :8080
-   (off-cluster, blocked)              ▼
-                              ┌───────────────┐
-                              │   sinkhole    │  (logs captures)
-                              └───────────────┘
+ ns cyber-range              ns dns-system           ns fake-internet
+ ┌─────────────┐  :8053  ┌─────────────┐  :53   ┌─────────────┐
+ │ infected-pc │ ──────► │ firewall-sim│ ─────► │ internal-dns│  abc.com, *.corp.lab
+ └──────┬──────┘         │  ConfigMap  │        └─────────────┘
+        │                │  range-mode │  :53   ┌─────────────┐
+        │                └──────┬──────┘ ─────► │ external-dns│  C2→10.43.66.66
+        │   ON: answer          │ capture        └─────────────┘  web→10.43.80.80
+        │   10.255.255.10       ▼
+        │                ┌─────────────┐         ┌─────────────┐
+        └─ OFF: HTTP ─── │  sinkhole   │         │ fake-web    │
+           check-in      │  :8080      │         │ fake C2     │
+           to fake C2    └─────────────┘         └─────────────┘
+
+ ns corp:  web01 → web02 → db01/db02     dc01 ↔ dc02 (DRS)
+ ns range-admin:  range-console :8090 (NodePort 30090) → k3s API
 ```
 
-- **infected-pc** — simulated compromised endpoint; asks `firewall-sim` to
-  resolve the malicious domain, then attempts a C2 callback and logs the verdict.
-- **firewall-sim** — DNS policy engine on `:8053`. Behavior driven by the
-  `range-mode` ConfigMap (`SINKHOLE_ENABLED`). Sinkholes or forwards accordingly.
-- **internal-dns** — resolves benign/corporate domains; refuses the malicious one.
-- **external-dns** — attacker-aware public resolver; maps the malicious domain to
-  the attacker IP (`203.0.113.66`, TEST-NET-3).
-- **sinkhole** — HTTP capture endpoint on `:8080`; logs interceptions.
-- **NetworkPolicies** — default-deny egress in `cyber-range`, re-opening only
-  CoreDNS, `infected-pc→firewall`, and `firewall→{dns-system, sinkhole}`. The
-  actual off-cluster C2 callback stays denied — that is the containment.
+- **infected-pc** — beacons `MALICIOUS_DOMAIN` via firewall-sim, then POSTs
+  `/checkin` to whatever IP that name resolved to. Also browses `www.example.com`.
+- **firewall-sim** — DNS policy on `:8053`. Sinkhole ON: answers `SINKHOLE_IP`
+  and POSTs a capture. Sinkhole OFF: forwards to external-dns. `*.corp.lab` and
+  `abc.com` go to internal-dns.
+- **internal-dns / external-dns** — lab zone vs fake-public resolver. C2 names
+  map to fake C2 `10.43.66.66`; other public names map to fake-web `10.43.80.80`.
+- **sinkhole** — HTTP capture endpoint + dashboard (`:8080`, NodePort 30080).
+- **fake-internet** — catch-all web + inert C2 that logs check-ins (NodePort 30081).
+  deny-all-egress. infected-pc may reach only those two ClusterIPs.
+- **range-console** — login, scenario library, logs, captures (NodePort 30090).
+- **corp** — thin AD (dc01/dc02), DBs, intranet (NodePort 30088). Lateral path
+  from infected-pc is opt-in (`corp-lateral.yaml`).
+- **NetworkPolicies** — default-deny egress in `cyber-range` and `corp`. The
+  callback to `10.255.255.10` stays denied — that is the containment.
 
-> All addresses are fake/reserved (TEST-NET / RFC5737, `10.255.255.10`). Nothing
-> talks to the real internet; the range is self-contained.
+> All addresses are fake/reserved. Nothing talks to the real internet.
 
 ## Prerequisites
 
@@ -77,9 +87,10 @@ chmod +x *.sh
 
 **Variant B (without):**
 ```
-[infected-pc]  [UNCONTAINED] teq.xyz.com -> 203.0.113.66 (attacker C2) ... malware would exfiltrate.
-[firewall-sim] [ALERT] malicious teq.xyz.com ... forwarded via EXTERNAL -> A 203.0.113.66 (NO sinkhole ...)
-[external-dns] resolve teq.xyz.com -> 203.0.113.66 (ATTACKER C2)
+[infected-pc]  [UNCONTAINED] teq.xyz.com -> 10.43.66.66 (attacker C2). C2 check-in REACHED fake C2, got task … 'sleep'
+[firewall-sim] [ALERT] malicious teq.xyz.com ... forwarded via EXTERNAL -> 10.43.66.66 (NO sinkhole ...)
+[external-dns] resolve teq.xyz.com -> 10.43.66.66 (ATTACKER C2 … served by fake-internet)
+[fake-internet] C2 CHECK-IN … domain=teq.xyz.com POST /checkin -> task … (sleep)
 ```
 
 ## Corp servers (namespace `corp`): thin AD, DB and web
@@ -137,13 +148,15 @@ applies — config-driven behavior, service-based DNS, egress restriction.
 
 ```
 k8s/
-├── images/            # Dockerfiles + Python app code for the 5 images
+├── images/            # Dockerfiles + Python app code
 │   ├── infected-pc/   (client.py)
 │   ├── internal-dns/  (dns.py)  external-dns/ (dns.py)
 │   ├── firewall-sim/  (firewall.py)
 │   ├── sinkhole/      (server.py)
+│   ├── fake-internet/ (server.py)
+│   ├── range-console/ (console.py, ui.html)
 │   └── corp-samba-dc/ (entrypoint.sh)  corp-web02/ (app.py)
-├── manifests/         # namespace, deployments/services, networkpolicy, 2 configmaps
+├── manifests/         # namespaces, deployments, networkpolicy, range-mode, corp, console
 └── scripts/           # 01-install-k3s, 02-build-images, 03-deploy, toggle-variant, validate, teardown
 ```
 
