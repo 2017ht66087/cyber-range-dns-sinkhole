@@ -1,0 +1,24 @@
+// Match unified sessions against the IR_IoC watchlist.
+// Watchlist columns: IoCType, IoCValue, ThreatName, Confidence, Source
+let iocs = _GetWatchlist("IR_IoC")
+    | project IoCType, IoCValue = toupper(tostring(IoCValue)), WatchThreat = ThreatName, Confidence, Source;
+let sessions = vimWebSessionUnified
+    | where TimeGenerated > ago(7d)
+    | extend
+        ip = toupper(SrcIpAddr),
+        host = toupper(DstHostname),
+        url = toupper(Url);
+sessions
+| join kind=inner (iocs | where IoCType =~ "ip") on $left.ip == $right.IoCValue
+| project TimeGenerated, Match = "ip", IoCValue, SrcIpAddr, Url, DvcAction, ThreatName, WatchThreat, Confidence, Source
+| union (
+    sessions
+    | join kind=inner (iocs | where IoCType =~ "domain") on $left.host == $right.IoCValue
+    | project TimeGenerated, Match = "domain", IoCValue, SrcIpAddr, Url, DvcAction, ThreatName, WatchThreat, Confidence, Source
+)
+| union (
+    sessions
+    | join kind=inner (iocs | where IoCType =~ "url") on $left.url == $right.IoCValue
+    | project TimeGenerated, Match = "url", IoCValue, SrcIpAddr, Url, DvcAction, ThreatName, WatchThreat, Confidence, Source
+)
+| order by TimeGenerated desc

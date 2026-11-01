@@ -1,0 +1,66 @@
+// ASimWebSessionAkamai
+// Path A: Akamai CCF table → ASIM Web Session.
+// Sentinel → Functions → name: ASimWebSessionAkamai
+// Column names on AkamaiSIEMEvent vary by connector version. This parser
+// accepts both nested JSON (attackData/httpMessage) and already-flattened columns.
+let toAction = (a:string) {
+    case(
+        a in~ ("deny", "block", "abort", "drop"), "block",
+        a in~ ("alert", "monitor", "slow"), "alert",
+        a in~ ("allow", "none", ""), "allow",
+        tostring(a))
+};
+let raw = AkamaiSIEMEvent
+    | extend
+        attackData = iff(isnull(column_ifexists("attackData", dynamic(null))), dynamic({}), attackData),
+        httpMessage = iff(isnull(column_ifexists("httpMessage", dynamic(null))), dynamic({}), httpMessage);
+raw
+| extend
+    EventVendor = "Akamai",
+    EventProduct = "WAF",
+    EventSchema = "WebSession",
+    EventSchemaVersion = "0.2.6",
+    EventCount = 1,
+    EventStartTime = TimeGenerated,
+    EventEndTime = TimeGenerated,
+    EventOriginalUid = coalesce(
+        tostring(column_ifexists("requestId", "")),
+        tostring(httpMessage.requestId),
+        ""),
+    applied = coalesce(
+        tostring(column_ifexists("appliedAction", "")),
+        tostring(attackData.appliedAction),
+        ""),
+    SrcIpAddr = coalesce(
+        tostring(column_ifexists("clientIP", "")),
+        tostring(attackData.clientIP),
+        ""),
+    DstHostname = coalesce(
+        tostring(column_ifexists("host", "")),
+        tostring(httpMessage.host),
+        ""),
+    HttpRequestMethod = coalesce(
+        tostring(column_ifexists("method", "")),
+        tostring(httpMessage.method),
+        ""),
+    HttpUserAgent = coalesce(
+        tostring(column_ifexists("userAgent", "")),
+        tostring(httpMessage.userAgent),
+        ""),
+    path = coalesce(tostring(column_ifexists("path", "")), tostring(httpMessage.path), ""),
+    qs = coalesce(tostring(column_ifexists("query", "")), tostring(httpMessage.query), ""),
+    tls = coalesce(tostring(column_ifexists("tls", "")), tostring(httpMessage.tls), ""),
+    ThreatId = coalesce(tostring(column_ifexists("rules", "")), tostring(attackData.rules), ""),
+    ThreatName = coalesce(tostring(column_ifexists("ruleMessages", "")), tostring(attackData.ruleMessages), ""),
+    ThreatField = coalesce(tostring(column_ifexists("ruleData", "")), tostring(attackData.ruleData), "")
+| extend
+    DvcAction = toAction(applied),
+    NetworkProtocol = iff(isempty(tls), "HTTP", "HTTPS"),
+    Url = strcat(iff(isempty(tls), "http://", "https://"), DstHostname, path, iff(isempty(qs), "", strcat("?", qs))),
+    EventResult = iff(toAction(applied) == "block", "Failure", "Success"),
+    EventSeverity = case(toAction(applied) == "block", "Medium", toAction(applied) == "alert", "Low", "Informational")
+| project-keep
+    TimeGenerated, EventStartTime, EventEndTime, EventVendor, EventProduct, EventSchema, EventSchemaVersion,
+    EventCount, EventOriginalUid, EventResult, EventSeverity, DvcAction,
+    SrcIpAddr, DstHostname, Url, HttpRequestMethod, HttpUserAgent, NetworkProtocol,
+    ThreatId, ThreatName, ThreatField

@@ -1,0 +1,34 @@
+// Extract candidate IoCs from unified WAF sessions for IR case notes.
+// Review before publishing to a watchlist — this is extraction, not verdict.
+vimWebSessionUnified
+| where TimeGenerated > ago(7d)
+| where DvcAction in ("block", "alert")
+| extend
+    Host = DstHostname,
+    UrlHost = tostring(parse_url(Url).Host)
+| summarize
+    Hits = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    SampleUrl = take_any(Url),
+    Threats = make_set(ThreatName, 8)
+    by IoCType = "ip", IoCValue = SrcIpAddr
+| union (
+    vimWebSessionUnified
+    | where TimeGenerated > ago(7d)
+    | where DvcAction in ("block", "alert")
+    | where isnotempty(DstHostname)
+    | summarize
+        Hits = count(),
+        FirstSeen = min(TimeGenerated),
+        LastSeen = max(TimeGenerated),
+        SampleUrl = take_any(Url),
+        Threats = make_set(ThreatName, 8)
+        by IoCType = "domain", IoCValue = DstHostname
+)
+| where isnotempty(IoCValue)
+| where IoCValue !startswith "10."
+    and IoCValue !startswith "192.168."
+    and IoCValue !startswith "172.16."
+    and IoCValue !in ("localhost", "-")
+| order by Hits desc

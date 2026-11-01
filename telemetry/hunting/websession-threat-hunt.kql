@@ -1,0 +1,14 @@
+// Hunt: WAF blocks and alerts in the last 24h, clustered for IR triage.
+// Requires vimWebSessionUnified (or _Im_WebSession after you register the parsers).
+vimWebSessionUnified
+| where TimeGenerated > ago(24h)
+| where DvcAction in ("block", "alert")
+| summarize
+    Hits = count(),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    Actions = make_set(DvcAction, 5),
+    Threats = make_set(ThreatName, 10),
+    Urls = make_set(Url, 10)
+    by SrcIpAddr, DstHostname
+| order by Hits desc

@@ -1,0 +1,8 @@
+// vimWebSessionUnified
+// Hunter-facing union of Path A + Path B. Use this when _Im_WebSession is not
+// installed, or as a workspace alias while ASIM content is rolling out.
+// Sentinel → Functions → name: vimWebSessionUnified
+let A = ASimWebSessionAkamai();
+let B = ASimWebSessionAkamaiCEF();
+union isfuzzy=true A, B
+| where TimeGenerated > ago(30d)

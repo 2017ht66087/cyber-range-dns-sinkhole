@@ -1,0 +1,39 @@
+// ASimWebSessionAkamaiCEF
+// Path B: CEF via AMA (CommonSecurityLog) → ASIM Web Session.
+// Sentinel → Functions → name: ASimWebSessionAkamaiCEF
+let toAction = (a:string) {
+    case(
+        a in~ ("deny", "block", "abort", "drop"), "block",
+        a in~ ("alert", "monitor", "slow"), "alert",
+        a in~ ("allow", "none", ""), "allow",
+        tostring(a))
+};
+CommonSecurityLog
+| where DeviceVendor =~ "Akamai"
+| extend
+    EventVendor = "Akamai",
+    EventProduct = coalesce(DeviceProduct, "akamai_siem"),
+    EventSchema = "WebSession",
+    EventSchemaVersion = "0.2.6",
+    EventCount = 1,
+    EventStartTime = TimeGenerated,
+    EventEndTime = TimeGenerated,
+    EventOriginalUid = coalesce(DeviceExternalId, column_ifexists("DevicePayloadId", "")),
+    DvcAction = toAction(tostring(DeviceAction)),
+    SrcIpAddr = coalesce(SourceIP, ""),
+    DstHostname = coalesce(DestinationHostName, DestinationDnsDomain, ""),
+    Url = coalesce(RequestURL, ""),
+    HttpRequestMethod = coalesce(RequestMethod, ""),
+    HttpUserAgent = coalesce(RequestClientApplication, ""),
+    NetworkProtocol = iff(RequestURL startswith "https://", "HTTPS", "HTTP"),
+    ThreatId = coalesce(DeviceCustomString1, ""),
+    ThreatName = coalesce(DeviceCustomString2, ""),
+    ThreatField = coalesce(DeviceCustomString3, "")
+| extend
+    EventResult = iff(DvcAction == "block", "Failure", "Success"),
+    EventSeverity = case(DvcAction == "block", "Medium", DvcAction == "alert", "Low", "Informational")
+| project-keep
+    TimeGenerated, EventStartTime, EventEndTime, EventVendor, EventProduct, EventSchema, EventSchemaVersion,
+    EventCount, EventOriginalUid, EventResult, EventSeverity, DvcAction,
+    SrcIpAddr, DstHostname, Url, HttpRequestMethod, HttpUserAgent, NetworkProtocol,
+    ThreatId, ThreatName, ThreatField

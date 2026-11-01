@@ -1,0 +1,4 @@
+IoCType,IoCValue,ThreatName,Confidence,Source
+ip,203.0.113.66,Example TEST-NET attacker C2,low,lab-docs
+domain,teq.xyz.com,Example sinkhole exercise C2,low,lab-docs
+url,https://teq.xyz.com/checkin,Example beacon path,low,lab-docs

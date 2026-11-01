@@ -1,0 +1,24 @@
+// Hunt: possible C2-style beacons (same client + URL, regular cadence)
+// and rare URLs that only a few clients requested.
+// Synthetic range beacons (teq.xyz.com on 192.168.9.0/24) should be filtered
+// out of production hunts — keep them only when you are scoring the lab.
+let window = 24h;
+let sessions = vimWebSessionUnified
+    | where TimeGenerated > ago(window)
+    | where isnotempty(SrcIpAddr) and isnotempty(Url);
+let rare = sessions
+    | summarize Clients = dcount(SrcIpAddr), Hits = count() by Url
+    | where Clients <= 3 and Hits <= 15
+    | project Url, Clients, Hits, Class = "rare-url";
+let beacon = sessions
+    | summarize Hits = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by SrcIpAddr, Url
+    | extend SpanMin = datetime_diff("minute", LastSeen, FirstSeen)
+    | where Hits >= 8 and SpanMin >= 10
+    | extend RatePerHour = round(todouble(Hits) / (SpanMin / 60.0), 2)
+    | where RatePerHour >= 2 and RatePerHour <= 120
+    | project SrcIpAddr, Url, Hits, FirstSeen, LastSeen, RatePerHour, Class = "possible-beacon";
+union
+    (rare | extend SrcIpAddr = "", RatePerHour = 0.0, FirstSeen = datetime(null), LastSeen = datetime(null)),
+    (beacon | extend Clients = 0)
+| project Class, SrcIpAddr, Url, Hits, Clients, RatePerHour, FirstSeen, LastSeen
+| order by Class, Hits desc

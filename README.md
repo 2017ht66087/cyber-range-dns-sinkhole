@@ -34,7 +34,12 @@ cyber-range/
   validate/    validate.ps1
   ansible/     inventory.ini  site.yml  (guest configuration)
   docs/        playable animation + presentation deck (GitHub Pages)
+  telemetry/   IR parsers: unify Akamai WAF + Sentinel CEF/syslog → ASIM, hunting, IoC
 ```
+
+[telemetry/README.md](telemetry/README.md) — Incident Response pack: field map, ASIM Web Session
+parsers, threat-hunting queries, and IoC extraction/watchlist match for the
+Microsoft security stack.
 
 The live range is a single k3s node on **range-host** (`192.168.9.50` on VMnet8 NAT).
 The full VM inventory is trimmed; `SVC-DC` and `EXT-INETSIM` are replaced by the
