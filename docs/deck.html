@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PurpleRange — presentation</title>
+<style>
+  :root {
+    --bg: #0b1021; --panel: #141b33; --line: #263042; --muted: #9aa4b2;
+    --fg: #e6e6e6; --accent: #5cd6ff; --ok: #3fd68f; --bad: #ff7a7a;
+    --warn: #ffc65c; --ev: #c59bff; --ctl: #ff9b4a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, Segoe UI, Arial, sans-serif; overflow: hidden; }
+  .deck { height: 100%; }
+  .slide { display: none; height: 100%; padding: 3.2rem 4rem 4.2rem; flex-direction: column; }
+  .slide.on { display: flex; }
+  .kicker { color: var(--accent); font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .4rem; }
+  h1 { font-size: 2.6rem; margin: 0 0 .6rem; line-height: 1.15; }
+  h2 { font-size: 2rem; margin: 0 0 1.1rem; line-height: 1.2; }
+  p, li { font-size: 1.15rem; line-height: 1.45; color: #d5dbe6; }
+  .sub { color: var(--muted); font-size: 1.15rem; max-width: 46rem; }
+  .grid { display: grid; gap: 1rem; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g5 { grid-template-columns: repeat(5, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
+  .card h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
+  .card p, .card li { font-size: .98rem; margin: 0; color: var(--muted); }
+  .card ul { margin: .35rem 0 0; padding-left: 1.1rem; }
+  .tag { display: inline-block; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 999px; padding: .1rem .5rem; color: var(--muted); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .ev { color: var(--ev); }
+  .flow { display: flex; align-items: stretch; gap: .55rem; flex-wrap: wrap; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .7rem .85rem; min-width: 8.5rem; }
+  .box b { display: block; font-size: 1rem; }
+  .box span { display: block; color: var(--muted); font-size: .82rem; margin-top: .2rem; }
+  .arrow { align-self: center; color: var(--accent); font-size: 1.4rem; font-weight: 700; }
+  .arrow.bad { color: var(--bad); }
+  .arrow.ok { color: var(--ok); }
+  .x { color: var(--bad); font-weight: 700; }
+  footer.nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
+    gap: .75rem; padding: .55rem 1.2rem; background: #0b1021; border-top: 1px solid var(--line); }
+  footer.nav button { background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: .35rem .7rem; cursor: pointer; font: inherit; }
+  .dots { display: flex; gap: .35rem; flex-wrap: wrap; flex: 1; justify-content: center; }
+  .dots button { width: 9px; height: 9px; padding: 0; border-radius: 50%; background: #2a3348; }
+  .dots button.on { background: var(--accent); }
+  .count { color: var(--muted); font-size: .8rem; min-width: 3.4rem; text-align: right; }
+  a { color: var(--accent); }
+  .title-slide { justify-content: center; }
+  .title-slide h1 { font-size: 3.1rem; color: var(--accent); }
+  .rule { width: 4rem; height: 3px; background: var(--accent); border: 0; margin: .4rem 0 1rem; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; flex: 1; }
+  .compare .card h3 { font-size: 1.2rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .55rem .4rem; border-bottom: 1px solid var(--line); font-size: 1.05rem; }
+  th { color: var(--muted); font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; color: var(--accent); }
+  .stack { display: flex; flex-direction: column; gap: .7rem; }
+  @media (max-width: 900px) {
+    .slide { padding: 1.4rem 1.1rem 4.4rem; }
+    h1 { font-size: 1.8rem; } h2 { font-size: 1.4rem; }
+    .g2, .g3, .g5, .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<section class="slide title-slide on">
+  <p class="kicker">Purple-team lab</p>
+  <h1>PurpleRange</h1>
+  <hr class="rule">
+  <p class="sub">Isolated DNS-sinkhole cyber range. Same infected-endpoint scenario, with and without containment. All traffic is synthetic. No real malware, C2, or internet.</p>
+  <p class="sub" style="margin-top:1.2rem">range-host · 192.168.9.50 · k3s · VMnet8 NAT</p>
+</section>
+
+<section class="slide">
+  <p class="kicker">Agenda</p>
+  <h2>What this deck covers</h2>
+  <div class="grid g2">
+    <div class="card"><h3>1. Isolation</h3><p>What is in the lab, what is not, and why the labs stay separate.</p></div>
+    <div class="card"><h3>2. Architecture</h3><p>Host, VMware networks, and the five k3s namespaces.</p></div>
+    <div class="card"><h3>3. Two outcomes</h3><p>Sinkhole ON (contained) vs OFF (reaches fake C2).</p></div>
+    <div class="card"><h3>4. Supporting services</h3><p>Fake internet, corp AD/DB/web, console, and where logs land.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Rules</p>
+  <h2>The range never leaves the lab</h2>
+  <div class="grid g3">
+    <div class="card"><span class="tag">Traffic</span><h3>Synthetic only</h3><p>DNS beacons, HTTP check-ins, and an inert C2 “sleep” task. No real malware or exfil.</p></div>
+    <div class="card"><span class="tag">Network</span><h3>No real internet</h3><p>Public names resolve to fake-web. C2 names resolve to fake C2. Egress is denied.</p></div>
+    <div class="card"><span class="tag">Labs</span><h3>Do not mix</h3><p>range-host is the range. ODS-Ubuntu is the CSI Nora box. Tails is not a host.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Host</p>
+  <h2>One running VM carries the range</h2>
+  <div class="flow" style="margin-bottom:1.2rem">
+    <div class="box"><b>Windows 11</b><span>VMware Workstation 26</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>VMnet8 NAT</b><span>192.168.9.0/24 · host .1</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>range-host</b><span>192.168.9.50 · k3s · 6 GiB</span></div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h3>On</h3><p>range-host is the only place the range runs.</p></div>
+    <div class="card"><h3>Off / other lab</h3><p>ODS-Ubuntu is bridged and is not part of the range.</p></div>
+    <div class="card"><h3>Replaced in-cluster</h3><p>SVC-DC → corp DCs. EXT-INETSIM → fake-internet. SOC / MGMT / ATK VMs stay disabled to save RAM.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Architecture</p>
+  <h2>Five namespaces on one node</h2>
+  <div class="grid g5">
+    <div class="card"><h3>cyber-range</h3><p>infected-pc<br>firewall-sim<br>sinkhole</p></div>
+    <div class="card"><h3>dns-system</h3><p>internal-dns<br>external-dns</p></div>
+    <div class="card"><h3>fake-internet</h3><p>fake-web<br>fake C2<br>dashboard</p></div>
+    <div class="card"><h3>corp</h3><p>dc01 / dc02<br>db01 / db02<br>web01 / web02</p></div>
+    <div class="card"><h3>range-admin</h3><p>range-console<br>scenarios<br>login</p></div>
+  </div>
+  <p class="sub" style="margin-top:1.2rem">cyber-range and corp default-deny egress. fake-internet has no outbound path at all.</p>
+</section>
+
+<section class="slide">
+  <p class="kicker">Path</p>
+  <h2>Every beacon starts the same way</h2>
+  <div class="flow">
+    <div class="box"><b>infected-pc</b><span>A? teq.xyz.com every 20s</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>firewall-sim :8053</b><span>reads range-mode</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>Decision</b><span>SINKHOLE_ENABLED?</span></div>
+  </div>
+  <div class="compare" style="margin-top:1.3rem">
+    <div class="card"><h3 class="ok">true → contain</h3><p>Answer 10.255.255.10. POST a capture. Block the HTTP check-in.</p></div>
+    <div class="card"><h3 class="bad">false → uncontained</h3><p>Forward to external-dns. Resolve fake C2 10.43.66.66. Check-in succeeds with task “sleep”.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Variant A</p>
+  <h2 class="ok">Sinkhole ON — contained</h2>
+  <div class="stack">
+    <div class="flow">
+      <div class="box"><b>1. Query</b><span>teq.xyz.com → firewall</span></div>
+      <div class="arrow ok">→</div>
+      <div class="box"><b>2. Answer</b><span>10.255.255.10</span></div>
+      <div class="arrow ok">→</div>
+      <div class="box"><b>3. Capture</b><span>POST /capture</span></div>
+    </div>
+    <div class="flow">
+      <div class="box"><b>4. Check-in</b><span>POST /checkin to sinkhole IP</span></div>
+      <div class="arrow bad">→</div>
+      <div class="box"><b class="x">Denied</b><span>no egress rule for that address</span></div>
+    </div>
+    <div class="card"><p><code>[CONTAINED] teq.xyz.com -&gt; 10.255.255.10 (SINKHOLE). C2 check-in blocked.</code></p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Variant B</p>
+  <h2 class="bad">Sinkhole OFF — uncontained</h2>
+  <div class="stack">
+    <div class="flow">
+      <div class="box"><b>1. Query</b><span>same beacon</span></div>
+      <div class="arrow bad">→</div>
+      <div class="box"><b>2. Forward</b><span>external-dns</span></div>
+      <div class="arrow bad">→</div>
+      <div class="box"><b>3. Resolve</b><span>10.43.66.66 fake C2</span></div>
+      <div class="arrow bad">→</div>
+      <div class="box"><b>4. Check-in</b><span>task: sleep</span></div>
+    </div>
+    <div class="card"><p><code>[UNCONTAINED] teq.xyz.com -&gt; 10.43.66.66. REACHED fake C2, got task 'sleep'.</code></p></div>
+    <p class="sub">Nothing leaves the cluster. fake-internet deny-all-egress. The “attacker” is a lab process.</p>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Fake internet</p>
+  <h2>INetSim in-cluster, not a VM</h2>
+  <div class="grid g3">
+    <div class="card"><h3>fake-web 10.43.80.80</h3><p>Answers any public site. infected-pc browses www.example.com here every cycle.</p></div>
+    <div class="card"><h3>fake C2 10.43.66.66</h3><p>Records check-ins and returns an inert sleep task. Reached only when the sinkhole is OFF.</p></div>
+    <div class="card"><h3>Dashboard :30081</h3><p><code>/api/checkins</code> and <code>/api/requests</code>. Empty check-ins means containment is working.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Corp</p>
+  <h2>Thin AD, two databases, two webs</h2>
+  <div class="flow" style="margin-bottom:1.1rem">
+    <div class="box"><b>Browser :30088</b><span>VMnet8 only</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>web01 nginx</b><span>/app/</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>web02 HR</b></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>db01 + db02</b><span>employees / customers</span></div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h3>dc01 ↔ dc02</h3><p>Samba AD, realm CORP.LAB. DRS both ways. Demo users alice, bob, svc-sql, da-test.</p></div>
+    <div class="card"><h3>~275 MiB used</h3><p>Replaces the disabled SVC-DC VM. Worst case 1.25 GiB at limits.</p></div>
+    <div class="card"><h3>Lateral is off</h3><p>Apply <code>corp-lateral.yaml</code> only when you want infected-pc to touch AD/DB/web.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Console</p>
+  <h2>Operator control plane</h2>
+  <div class="flow" style="margin-bottom:1.1rem">
+    <div class="box"><b>Browser :30090</b><span>login required</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>range-console</b></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>k3s API</b><span>PATCH ConfigMaps</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>Rollout restart</b><span>firewall, PC, DNS</span></div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h3>Built-in scenarios</h3><p>baseline-contained, baseline-uncontained, botnet-multi-c2.</p></div>
+    <div class="card"><h3>Custom scenarios</h3><p>Your C2 domains, sinkhole on/off, beacon interval, 1–5 infected hosts.</p></div>
+    <div class="card"><h3>Cannot do</h3><p>Cannot apply corp-lateral. That stays a manual kubectl step.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <p class="kicker">Evidence</p>
+  <h2>Where each log lands</h2>
+  <table>
+    <thead><tr><th>Source</th><th>Path</th><th>Open</th></tr></thead>
+    <tbody>
+      <tr><td>infected-pc / firewall / DNS</td><td>k3s pods/log</td><td>Console → Logs</td></tr>
+      <tr><td>Sinkhole captures</td><td>/api/captures</td><td>:30080 and console</td></tr>
+      <tr><td>Fake C2 check-ins</td><td>/api/checkins</td><td>:30081 and console</td></tr>
+      <tr><td>Fake-web requests</td><td>/api/requests</td><td>:30081</td></tr>
+      <tr><td>Scenario launch</td><td>ConfigMap PATCH + rollout</td><td>Console → Overview</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide">
+  <p class="kicker">Open from this PC</p>
+  <h2>Landing URLs</h2>
+  <table>
+    <thead><tr><th>Service</th><th>Address</th></tr></thead>
+    <tbody>
+      <tr><td>Range console</td><td>http://192.168.9.50:30090/</td></tr>
+      <tr><td>Sinkhole dashboard</td><td>http://192.168.9.50:30080/</td></tr>
+      <tr><td>Fake internet</td><td>http://192.168.9.50:30081/</td></tr>
+      <tr><td>Corp intranet</td><td>http://192.168.9.50:30088/</td></tr>
+      <tr><td>This deck</td><td>https://2017ht66087.github.io/cyber-range-dns-sinkhole/deck.html</td></tr>
+      <tr><td>Playable animation</td><td>https://2017ht66087.github.io/cyber-range-dns-sinkhole/</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide">
+  <p class="kicker">Run</p>
+  <h2>One path on range-host</h2>
+  <div class="card">
+    <p><code>cd ~/cyber-range/k8s/scripts</code></p>
+    <p><code>./02-build-images.sh</code></p>
+    <p><code>./03-deploy.sh with</code> &nbsp;→ sinkhole ON</p>
+    <p><code>./validate.sh</code></p>
+    <p><code>./toggle-variant.sh without</code> &nbsp;→ uncontained, then toggle back</p>
+  </div>
+  <p class="sub" style="margin-top:1rem">Custom launches: console → Scenarios → Launch. Credentials are generated on the host, not stored in git.</p>
+</section>
+
+<section class="slide title-slide">
+  <p class="kicker">Close</p>
+  <h1>Contain, or watch it reach C2</h1>
+  <hr class="rule">
+  <p class="sub">Same implant. Same domain. One ConfigMap bit. Evidence on three dashboards.</p>
+  <p class="sub" style="margin-top:1.2rem">Repo: <a href="https://github.com/2017ht66087/cyber-range-dns-sinkhole">2017ht66087/cyber-range-dns-sinkhole</a></p>
+</section>
+
+</div>
+
+<footer class="nav">
+  <button type="button" id="prev">Prev</button>
+  <div class="dots" id="dots"></div>
+  <span class="count" id="count"></span>
+  <button type="button" id="next">Next</button>
+</footer>
+
+<script>
+const slides = [...document.querySelectorAll(".slide")];
+const dots = document.getElementById("dots");
+const count = document.getElementById("count");
+let i = 0;
+slides.forEach((_, n) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.onclick = () => go(n);
+  dots.appendChild(b);
+});
+function go(n) {
+  i = (n + slides.length) % slides.length;
+  slides.forEach((s, k) => s.classList.toggle("on", k === i));
+  [...dots.children].forEach((d, k) => d.classList.toggle("on", k === i));
+  count.textContent = (i + 1) + " / " + slides.length;
+}
+document.getElementById("prev").onclick = () => go(i - 1);
+document.getElementById("next").onclick = () => go(i + 1);
+document.addEventListener("keydown", e => {
+  if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(i + 1); }
+  if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(i - 1); }
+  if (e.key === "Home") go(0);
+  if (e.key === "End") go(slides.length - 1);
+});
+go(0);
+</script>
+</body>
+</html>

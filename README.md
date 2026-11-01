@@ -33,7 +33,7 @@ cyber-range/
   scenario/    scenario-toggle.ps1  benign-beacon.ps1
   validate/    validate.ps1
   ansible/     inventory.ini  site.yml  (guest configuration)
-  docs/        playable architecture + data/log-flow animation (GitHub Pages)
+  docs/        playable animation + presentation deck (GitHub Pages)
 ```
 
 The live range is a single k3s node on **range-host** (`192.168.9.50` on VMnet8 NAT).
@@ -44,6 +44,10 @@ for deploy steps.
 **Playable animation (play / pause / step, four scenarios):**
 https://2017ht66087.github.io/cyber-range-dns-sinkhole/
 (also [`docs/index.html`](docs/index.html) if you want to open it offline).
+
+**Presentation deck (arrow keys or click through):**
+https://2017ht66087.github.io/cyber-range-dns-sinkhole/deck.html
+(also [`docs/deck.html`](docs/deck.html) offline).
 
 ## Architecture
 
