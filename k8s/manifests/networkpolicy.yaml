@@ -9,8 +9,10 @@
 #   * infected-pc -> firewall-sim:8053            malicious DNS lookups
 #   * firewall-sim -> dns-system:53               upstream forwarding
 #   * firewall-sim -> sinkhole:8080               capture notifications
-# The infected host's actual C2 callback (to SINKHOLE_IP / attacker IP, both
-# off-cluster) is intentionally left denied -> that IS the containment.
+#   * infected-pc -> fake-internet:8080/8066      simulated internet + fake C2
+# A sinkholed callback (to SINKHOLE_IP, off-cluster) stays denied -> that IS the
+# containment. With the sinkhole OFF the C2 name resolves to fake-c2 in the
+# fake-internet namespace, so the check-in lands there (and nowhere real).
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -93,4 +95,29 @@ spec:
           app: sinkhole
     ports:
     - port: 8080
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-infected-to-fake-internet
+  namespace: cyber-range
+spec:
+  podSelector:
+    matchLabels:
+      app: infected-pc
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: fake-internet
+      podSelector:
+        matchLabels:
+          app: fake-internet
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 8066
       protocol: TCP

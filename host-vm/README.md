@@ -18,12 +18,13 @@ Windows 11 host
   the range lives on host-only libvirt networks *inside* this VM with no forward.
 - Isolation is preserved: nothing in the range can reach your LAN/internet.
 
-## Reality check for THIS laptop (i7-1265U, 32 GB, ~7 GB free now)
+## Reality check for THIS laptop (i7-1265U, 32 GB)
 - You **cannot** run all 14 range VMs nested here (~41 GB RAM design).
-- Free memory first (close Docker Desktop, browsers, etc.), then give the host
-  VM 8-12 GB and run a **trimmed range**: `SEC-GW`, `SVC-DC`/`SVC-SINK`,
-  `EXT-DNS`, `EP-INFECTED`, and a light log collector. Edit `../ubuntu/inventory/vms.tsv`
-  (comment rows / lower mem) before deploying.
+- Inventory is already trimmed to `SEC-GW`, `SVC-SINK`, `EXT-DNS`,
+  `EP-INFECTED`, and light `SVC-LOG`. Full list: `../ubuntu/inventory/vms.full.tsv`.
+- Shut down `ODS-Ubuntu` and Tails before starting this VM. This nest is the
+  cyber-range lab only — not CSI Nora.
+- Free memory first, then give this VM 8–12 GB (it is currently 6 GB / paused).
 
 ## Steps
 ```powershell

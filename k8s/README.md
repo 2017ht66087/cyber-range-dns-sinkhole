@@ -82,6 +82,49 @@ chmod +x *.sh
 [external-dns] resolve teq.xyz.com -> 203.0.113.66 (ATTACKER C2)
 ```
 
+## Corp servers (namespace `corp`): thin AD, DB and web
+
+Two of each, as lightweight containers instead of VMs (they replace the disabled
+`SVC-DC` VM in `config/inventory.psd1`). Defined in `manifests/corp-servers.yaml`,
+deployed by `03-deploy.sh`, checked by `validate.sh`.
+
+| Host (`*.corp.lab`) | What | Image | Mem req / limit |
+|---|---|---|---|
+| dc01 `10.43.200.11` | Samba AD DC, provisions realm `CORP.LAB` / domain `CORP` | `corp-samba-dc` (Alpine) | 160 / 384 Mi |
+| dc02 `10.43.200.12` | Samba AD DC, joins dc01 (DRS replication) | `corp-samba-dc` | 160 / 384 Mi |
+| db01 `10.43.200.21` | PostgreSQL 16, `hr.employees` + private `hr.payroll` | `postgres:16-alpine` | 48 / 160 Mi |
+| db02 `10.43.200.22` | MariaDB 11.4, `crm.customers` + `crm.orders` | `mariadb:11.4` | 96 / 256 Mi |
+| web01 `10.43.200.31` | nginx intranet; `/app/` proxies to web02 | `nginx:1.27-alpine` | 8 / 32 Mi |
+| web02 `10.43.200.32` | stdlib-Python HR portal reading db01 + db02 | `corp-web02` | 16 / 64 Mi |
+
+Together they use about 0.4 GiB in practice (1.25 GiB worst case at the limits).
+
+- **AD:** demo users `alice` (IT-Admins), `bob` (Finance), `svc-sql` (with SPN
+  `postgres/db01.corp.lab`, so it can be Kerberoasted) and `da-test` (Domain Admins).
+  The DCs keep their state on local-path PVCs and register their fixed Service
+  ClusterIPs in AD DNS (DCE/RPC is pinned to 49152/49153), so replication
+  survives pod restarts. Sysvol ACLs are stored in a tdb, so the pods don't need
+  `CAP_SYS_ADMIN`.
+- **Credentials:** `scripts/corp-secrets.sh` generates random passwords into the
+  Secret `corp/corp-credentials` and a copy in `~/.corp-lab-credentials`
+  (mode 600). None of these passwords are stored in git.
+- **DNS:** internal-dns answers `<host>.corp.lab` (and `corp.lab` itself, which
+  points at dc01) with the Service IPs. The DCs also serve the full AD zone
+  (SRV records) themselves.
+- **Access:** intranet on the host at `http://<node-ip>:30088/` (only reachable
+  from the VMnet8 subnet). Everything else is ClusterIP only.
+- **NetworkPolicy:** corp is default-deny in both directions, except traffic
+  inside corp, DNS to CoreDNS, kubelet probes and the NodePort. corp has no
+  internet egress. **Lateral movement** from `infected-pc` (DNS, Kerberos, LDAP,
+  SMB, both DBs and HTTP) is opt-in: `kubectl apply -f manifests/corp-lateral.yaml`
+  or `CORP_LATERAL=1 ./03-deploy.sh`.
+
+```bash
+sudo k3s kubectl -n corp exec deploy/dc01 -- samba-tool drs showrepl --summary
+sudo k3s kubectl -n corp exec deploy/dc02 -- samba-tool user list
+curl http://192.168.9.50:30088/app/        # web01 -> web02 -> db01/db02
+```
+
 ## Run both variants side by side (optional)
 
 The included manifests use a single `range-mode` ConfigMap and shared Deployment
@@ -98,7 +141,8 @@ k8s/
 │   ├── infected-pc/   (client.py)
 │   ├── internal-dns/  (dns.py)  external-dns/ (dns.py)
 │   ├── firewall-sim/  (firewall.py)
-│   └── sinkhole/      (server.py)
+│   ├── sinkhole/      (server.py)
+│   └── corp-samba-dc/ (entrypoint.sh)  corp-web02/ (app.py)
 ├── manifests/         # namespace, deployments/services, networkpolicy, 2 configmaps
 └── scripts/           # 01-install-k3s, 02-build-images, 03-deploy, toggle-variant, validate, teardown
 ```

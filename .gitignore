@@ -17,3 +17,8 @@ host-vm/seed.iso
 # Logs & scratch
 *.log
 .build/
+
+# Generated local operator artifacts (not source)
+range-console-login.png
+.range-console-initial-password
+.corp-lab-credentials

@@ -17,13 +17,10 @@ spec:
       - name: dns
         image: internal-dns:latest
         imagePullPolicy: IfNotPresent
-        env:
-        - name: ALT_DOMAIN
-          value: "abc.com"
-        - name: BENIGN_IP
-          value: "10.0.0.50"
-        - name: MALICIOUS_DOMAIN
-          value: "teq.xyz.com"
+        envFrom:
+        - configMapRef:
+            name: range-mode
+            optional: true
         ports:
         - containerPort: 53
           protocol: UDP

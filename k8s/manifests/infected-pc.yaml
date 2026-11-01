@@ -26,8 +26,6 @@ spec:
           value: "firewall-sim.cyber-range.svc.cluster.local"
         - name: DNS_SERVER_PORT
           value: "8053"
-        - name: BEACON_INTERVAL
-          value: "20"
         resources:
           requests: { cpu: "10m", memory: "32Mi" }
           limits:   { cpu: "200m", memory: "128Mi" }

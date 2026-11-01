@@ -34,10 +34,18 @@ def env_bool(name, default=False):
     return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
 
 
-SINKHOLE_ENABLED = env_bool("SINKHOLE_ENABLED", False)
-SINKHOLE_IP      = os.getenv("SINKHOLE_IP", "10.255.255.10")
-MALICIOUS_DOMAIN = os.getenv("MALICIOUS_DOMAIN", "teq.xyz.com").rstrip(".").lower()
-ALT_DOMAIN       = os.getenv("ALT_DOMAIN", "abc.com").rstrip(".").lower()
+def env_domains(name, default):
+    """Comma-separated domain list (custom scenarios can target several C2s)."""
+    raw = os.getenv(name, default)
+    return [d.strip().rstrip(".").lower() for d in raw.split(",") if d.strip()]
+
+
+SINKHOLE_ENABLED  = env_bool("SINKHOLE_ENABLED", False)
+SINKHOLE_IP       = os.getenv("SINKHOLE_IP", "10.255.255.10")
+MALICIOUS_DOMAINS = env_domains("MALICIOUS_DOMAIN", "teq.xyz.com")
+ALT_DOMAIN        = os.getenv("ALT_DOMAIN", "abc.com").rstrip(".").lower()
+# Extra corporate zones always answered by internal-dns (corp servers, ns corp).
+INTERNAL_ZONES    = env_domains("INTERNAL_ZONES", "corp.lab")
 INTERNAL_DNS     = os.getenv("INTERNAL_DNS", "internal-dns.dns-system.svc.cluster.local")
 EXTERNAL_DNS     = os.getenv("EXTERNAL_DNS", "external-dns.dns-system.svc.cluster.local")
 SINKHOLE_URL     = os.getenv("SINKHOLE_URL", "http://sinkhole.cyber-range.svc.cluster.local:8080/capture")
@@ -94,8 +102,9 @@ class FirewallResolver(BaseResolver):
         qtype = QTYPE[request.q.qtype]
         client = handler.client_address[0] if handler and handler.client_address else "?"
 
-        is_malicious = _matches(qname, MALICIOUS_DOMAIN)
-        is_benign    = _matches(qname, ALT_DOMAIN)
+        is_malicious = any(_matches(qname, d) for d in MALICIOUS_DOMAINS)
+        is_benign    = _matches(qname, ALT_DOMAIN) or (
+            not is_malicious and any(_matches(qname, z) for z in INTERNAL_ZONES))
 
         # --- malicious + sinkhole ON: intercept ---
         if is_malicious and SINKHOLE_ENABLED:
@@ -127,7 +136,7 @@ class FirewallResolver(BaseResolver):
 
 def main():
     mode = "ON (contained)" if SINKHOLE_ENABLED else "OFF (uncontained)"
-    log(f"starting on :{PORT}  SINKHOLE={mode}  malicious={MALICIOUS_DOMAIN}")
+    log(f"starting on :{PORT}  SINKHOLE={mode}  malicious={','.join(MALICIOUS_DOMAINS)}")
     resolver = FirewallResolver()
     udp = DNSServer(resolver, port=PORT, address="0.0.0.0")
     tcp = DNSServer(resolver, port=PORT, address="0.0.0.0", tcp=True)

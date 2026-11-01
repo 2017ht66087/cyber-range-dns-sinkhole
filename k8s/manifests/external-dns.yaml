@@ -17,15 +17,17 @@ spec:
       - name: dns
         image: external-dns:latest
         imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: range-mode
+            optional: true
+        # Fixed clusterIPs of fake-c2 / fake-web (manifests/fake-internet.yaml).
+        # Set here, not in range-mode, so scenario launches never drop them.
         env:
-        - name: MALICIOUS_DOMAIN
-          value: "teq.xyz.com"
-        - name: ATTACKER_IP
-          value: "203.0.113.66"
-        - name: ALT_DOMAIN
-          value: "abc.com"
-        - name: BENIGN_PUBLIC_IP
-          value: "93.184.216.34"
+        - name: FAKE_C2_IP
+          value: "10.43.66.66"
+        - name: FAKE_WEB_IP
+          value: "10.43.80.80"
         ports:
         - containerPort: 53
           protocol: UDP

@@ -64,6 +64,16 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[sinkhole] {ts()} CAPTURE POST {self.path} from {self.client_address[0]} body={body}", flush=True)
         self._send(200, "application/json", '{"status":"sinkholed"}')
 
+    def do_DELETE(self):
+        if self.path.startswith("/api/captures"):
+            with LOCK:
+                n = len(CAPTURES)
+                CAPTURES.clear()
+            print(f"[sinkhole] {ts()} cleared {n} captures", flush=True)
+            self._send(200, "application/json", json.dumps({"cleared": n}))
+            return
+        self._send(404, "application/json", '{"error":"not found"}')
+
     def _dashboard(self):
         with LOCK:
             data = list(CAPTURES)[::-1]

@@ -1,6 +1,8 @@
 # Variant A: DNS sinkhole ENABLED (contained).
 # Malicious lookups are intercepted by firewall-sim, answered with SINKHOLE_IP,
 # and logged to the sinkhole capture endpoint.
+# MALICIOUS_DOMAIN may be a comma-separated list (custom scenarios).
+# The range console (range-admin) rewrites both ConfigMaps when a scenario is launched.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,3 +13,17 @@ data:
   SINKHOLE_IP: "10.255.255.10"
   MALICIOUS_DOMAIN: "teq.xyz.com"
   ALT_DOMAIN: "abc.com"
+  BEACON_INTERVAL: "20"
+  SCENARIO_ID: "baseline-contained"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: range-mode
+  namespace: dns-system
+data:
+  MALICIOUS_DOMAIN: "teq.xyz.com"
+  ATTACKER_IP: "203.0.113.66"
+  ALT_DOMAIN: "abc.com"
+  BENIGN_IP: "10.0.0.50"
+  BENIGN_PUBLIC_IP: "93.184.216.34"

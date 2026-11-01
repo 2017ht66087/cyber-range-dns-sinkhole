@@ -1,0 +1,134 @@
+# Fake internet (INetSim-style) in its own namespace.
+#
+#   fake-web  10.43.80.80:80 -> :8080  catch-all web server; external-dns answers
+#                                      benign public names with this IP
+#   fake-c2   10.43.66.66:80 -> :8066  fake attacker C2; external-dns answers the
+#                                      malicious C2 domains with this IP
+#   fake-internet-dashboard  NodePort 30081 -> :8081  activity log + JSON API
+#
+# The fixed clusterIPs must stay inside the k3s service CIDR (10.43.0.0/16)
+# and be unused; they are what external-dns (FAKE_C2_IP / FAKE_WEB_IP) returns.
+#
+# Isolation: no egress at all from this namespace (no real internet), and only
+# infected-pc may reach the web/C2 ports. cyber-range's matching egress rule is
+# allow-infected-to-fake-internet in networkpolicy.yaml.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-internet
+  labels:
+    app.kubernetes.io/part-of: cyber-range
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-internet
+  namespace: fake-internet
+  labels:
+    app: fake-internet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake-internet
+  template:
+    metadata:
+      labels:
+        app: fake-internet
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+      - name: fake-internet
+        image: fake-internet:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - { name: web, containerPort: 8080 }
+        - { name: c2, containerPort: 8066 }
+        - { name: dashboard, containerPort: 8081 }
+        readinessProbe:
+          httpGet: { path: /healthz, port: 8081 }
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests: { cpu: "10m", memory: "32Mi" }
+          limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-web
+  namespace: fake-internet
+spec:
+  clusterIP: 10.43.80.80
+  selector:
+    app: fake-internet
+  ports:
+  - { name: http, port: 80, targetPort: 8080, protocol: TCP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-c2
+  namespace: fake-internet
+spec:
+  clusterIP: 10.43.66.66
+  selector:
+    app: fake-internet
+  ports:
+  - { name: http, port: 80, targetPort: 8066, protocol: TCP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-internet-dashboard
+  namespace: fake-internet
+spec:
+  type: NodePort
+  selector:
+    app: fake-internet
+  ports:
+  - { name: dashboard, port: 8081, targetPort: 8081, nodePort: 30081, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-egress
+  namespace: fake-internet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-infected-pc-and-dashboard
+  namespace: fake-internet
+spec:
+  podSelector:
+    matchLabels:
+      app: fake-internet
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: cyber-range
+      podSelector:
+        matchLabels:
+          app: infected-pc
+    ports:
+    - { port: 8080, protocol: TCP }
+    - { port: 8066, protocol: TCP }
+  - ports:
+    - { port: 8081, protocol: TCP }

@@ -50,7 +50,7 @@ ubuntu/
   lib.sh                 # shared helpers + scenario settings
   inventory/
     networks.tsv         # 6 isolated libvirt networks
-    vms.tsv              # 14 VMs (base image, nets, tier, IP)
+    vms.tsv              # trimmed 5-VM laptop set (full design: vms.full.tsv)
   00-preflight.sh        # verify KVM/libvirt/images/resources
   01-create-networks.sh  # virsh net-define/-start (isolated, no forward, no DHCP)
   02-deploy-vms.sh       # qcow2 overlays + cloud-init + virt-install --import

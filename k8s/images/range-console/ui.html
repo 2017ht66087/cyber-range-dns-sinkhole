@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cyber Range Console</title>
+<style>
+  :root { --bg:#0b1021; --panel:#141b33; --line:#263042; --muted:#9aa4b2; --fg:#e6e6e6;
+          --accent:#5cd6ff; --ok:#3fd68f; --bad:#ff7a7a; --warn:#ffc65c; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--fg); margin:0; }
+  header { display:flex; align-items:center; gap:1rem; padding:.8rem 1.5rem; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:1.1rem; color:var(--accent); margin:0; }
+  header .active { color:var(--muted); font-size:.85rem; }
+  header form { margin-left:auto; }
+  nav { display:flex; gap:.25rem; padding:0 1.5rem; background:var(--panel); border-bottom:1px solid var(--line); }
+  nav button { background:none; border:0; color:var(--muted); padding:.7rem 1rem; cursor:pointer; border-bottom:2px solid transparent; font-size:.9rem; }
+  nav button.on { color:var(--accent); border-bottom-color:var(--accent); }
+  main { padding:1.25rem 1.5rem; max-width:1250px; }
+  section { display:none; } section.on { display:block; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin-bottom:1rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.9rem 1rem; }
+  .card .k { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+  .card .v { font-size:1.35rem; margin-top:.25rem; word-break:break-word; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th, td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .muted { color:var(--muted); }
+  button.btn { background:var(--accent); color:#06121d; border:0; border-radius:4px; padding:.45rem .8rem; font-weight:600; cursor:pointer; font-size:.85rem; }
+  button.btn.sec { background:#263042; color:var(--fg); }
+  button.btn.danger { background:var(--bad); color:#1d0606; }
+  button.btn:disabled { opacity:.5; cursor:wait; }
+  label { display:block; font-size:.78rem; color:var(--muted); margin:.6rem 0 .2rem; }
+  input, textarea, select { width:100%; padding:.45rem; background:var(--bg); border:1px solid var(--line); color:var(--fg); border-radius:4px; font:inherit; }
+  textarea { min-height:70px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  .split { display:grid; grid-template-columns:1.3fr 1fr; gap:1rem; align-items:start; }
+  pre { background:#05080f; border:1px solid var(--line); border-radius:6px; padding:.75rem; max-height:520px; overflow:auto; font-size:.78rem; white-space:pre-wrap; }
+  .msg { margin-top:.6rem; font-size:.85rem; white-space:pre-line; }
+  .tag { display:inline-block; font-size:.7rem; padding:.05rem .4rem; border-radius:3px; background:#263042; color:var(--muted); margin-left:.3rem; }
+  .actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+  h2 { font-size:1rem; margin:0 0 .75rem; }
+  .check { display:flex; align-items:center; gap:.5rem; margin-top:.75rem; font-size:.85rem; color:var(--fg); }
+  .check input { width:auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cyber Range Console</h1>
+  <span class="active">Active scenario: <b id="hdr-active">...</b></span>
+  <form method="post" action="/logout"><button class="btn sec" type="submit">Sign out</button></form>
+</header>
+<nav>
+  <button data-tab="overview" class="on">Overview</button>
+  <button data-tab="scenarios">Scenarios</button>
+  <button data-tab="captures">Sinkhole captures</button>
+  <button data-tab="logs">Logs</button>
+  <button data-tab="account">Account</button>
+</nav>
+<main>
+  <!-- Overview -->
+  <section id="overview" class="on">
+    <div class="grid">
+      <div class="card"><div class="k">Sinkhole</div><div class="v" id="ov-sinkhole">...</div></div>
+      <div class="card"><div class="k">Malicious domains</div><div class="v" id="ov-domains" style="font-size:.95rem">...</div></div>
+      <div class="card"><div class="k">Contained / uncontained beacons (recent)</div><div class="v"><span class="ok" id="ov-c">0</span> / <span class="bad" id="ov-u">0</span></div></div>
+      <div class="card"><div class="k">Sinkhole captures</div><div class="v" id="ov-caps">...</div></div>
+      <div class="card"><div class="k">Fake C2 check-ins (fake internet)</div><div class="v" id="ov-c2">...</div></div>
+    </div>
+    <div class="split">
+      <div class="card"><h2>Components</h2>
+        <table><thead><tr><th>Deployment</th><th>Namespace</th><th>Ready</th></tr></thead><tbody id="ov-deps"></tbody></table>
+      </div>
+      <div class="card"><h2>Latest beacon verdicts</h2>
+        <table><thead><tr><th>Verdict</th><th>Domain</th><th>Resolved to</th></tr></thead><tbody id="ov-verdicts"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scenarios -->
+  <section id="scenarios">
+    <div class="split">
+      <div class="card"><h2>Scenario library</h2>
+        <label class="check"><input type="checkbox" id="sc-clear" checked> Clear sinkhole captures + fake-internet logs when launching</label>
+        <table style="margin-top:.6rem"><thead><tr><th>Scenario</th><th>Settings</th><th></th></tr></thead><tbody id="sc-list"></tbody></table>
+        <div class="msg" id="sc-msg"></div>
+      </div>
+      <div class="card"><h2 id="ed-title">New custom scenario</h2>
+        <label>Name</label><input id="f-name" maxlength="60" placeholder="e.g. Ransomware C2 over DNS">
+        <label>Description</label><textarea id="f-desc" maxlength="300"></textarea>
+        <label>Malicious C2 domains (one per line or comma-separated, max 10)</label>
+        <textarea id="f-domains" placeholder="teq.xyz.com"></textarea>
+        <div class="row">
+          <div><label>Attacker C2 IP (logged; DNS answers with the fake C2)</label><input id="f-attacker" value="203.0.113.66"></div>
+          <div><label>Infected endpoints (1-5)</label><input id="f-endpoints" type="number" min="1" max="5" value="1"></div>
+        </div>
+        <div class="row">
+          <div><label>Benign domain</label><input id="f-benign" value="abc.com"></div>
+          <div><label>Benign domain IP</label><input id="f-benign-ip" value="10.0.0.50"></div>
+        </div>
+        <div class="row">
+          <div><label>Sinkhole IP</label><input id="f-sink-ip" value="10.255.255.10"></div>
+          <div><label>Beacon interval (seconds, 5-600)</label><input id="f-interval" type="number" min="5" max="600" value="20"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="f-sinkhole" checked> DNS sinkhole enabled (contained)</label>
+        <div class="actions" style="margin-top:1rem">
+          <button class="btn" id="ed-save">Save scenario</button>
+          <button class="btn sec" id="ed-reset">Clear form</button>
+        </div>
+        <div class="msg" id="ed-msg"></div>
+        <p class="muted" style="font-size:.75rem;margin-top:1rem">IPs must be lab-only (private / TEST-NET) and outside the cluster ranges 10.42.0.0/16 and 10.43.0.0/16. The range has no internet egress, so domains never resolve outside the lab.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Captures -->
+  <section id="captures">
+    <div class="card">
+      <div class="actions" style="margin-bottom:.75rem">
+        <button class="btn sec" id="cap-refresh">Refresh</button>
+        <button class="btn danger" id="cap-clear">Clear captures</button>
+      </div>
+      <table><thead><tr><th>Time</th><th>Source</th><th>Domain</th><th>Detail</th></tr></thead><tbody id="cap-rows"></tbody></table>
+    </div>
+  </section>
+
+  <!-- Logs -->
+  <section id="logs">
+    <div class="card">
+      <div class="actions" style="margin-bottom:.75rem;align-items:center">
+        <select id="log-comp" style="width:auto">
+          <option>infected-pc</option><option>firewall-sim</option><option>sinkhole</option>
+          <option>internal-dns</option><option>external-dns</option><option>fake-internet</option>
+          <option>dc01</option><option>dc02</option><option>db01</option><option>db02</option>
+          <option>web01</option><option>web02</option>
+        </select>
+        <button class="btn sec" id="log-refresh">Refresh</button>
+        <label class="check" style="margin:0"><input type="checkbox" id="log-auto"> Auto-refresh (5s)</label>
+      </div>
+      <pre id="log-out">Select a component.</pre>
+    </div>
+  </section>
+
+  <!-- Account -->
+  <section id="account">
+    <div class="card" style="max-width:420px"><h2>Change console password</h2>
+      <label>Current password</label><input id="pw-cur" type="password" autocomplete="current-password">
+      <label>New password (min 10 characters)</label><input id="pw-new" type="password" autocomplete="new-password">
+      <label>Confirm new password</label><input id="pw-new2" type="password" autocomplete="new-password">
+      <div class="actions" style="margin-top:1rem"><button class="btn" id="pw-save">Change password</button></div>
+      <div class="msg" id="pw-msg"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
+const row = (cells) => { const tr = el('tr'); cells.forEach(c => { const td = el('td'); if (c instanceof Node) td.appendChild(c); else td.textContent = c; tr.appendChild(td); }); return tr; };
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'X-Requested-With': 'range-console' } };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  if (r.status === 401) { location.href = '/'; throw new Error('signed out'); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((data.errors || [data.error || ('HTTP ' + r.status)]).join('\n'));
+  return data;
+}
+function say(id, text, ok) { const m = $(id); m.textContent = text; m.className = 'msg ' + (ok ? 'ok' : 'bad'); }
+
+// tabs
+let current = 'overview';
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  current = b.dataset.tab;
+  ({ overview: loadStatus, scenarios: loadScenarios, captures: loadCaptures, logs: loadLogs })[current]?.();
+});
+
+// overview
+async function loadStatus() {
+  try {
+    const s = await api('GET', '/api/status');
+    $('hdr-active').textContent = s.active_scenario;
+    const on = s.range_mode.SINKHOLE_ENABLED === 'true';
+    $('ov-sinkhole').textContent = on ? 'ON (contained)' : 'OFF (uncontained)';
+    $('ov-sinkhole').className = 'v ' + (on ? 'ok' : 'bad');
+    $('ov-domains').textContent = (s.range_mode.MALICIOUS_DOMAIN || '').split(',').join(', ');
+    $('ov-c').textContent = s.verdicts.contained; $('ov-u').textContent = s.verdicts.uncontained;
+    $('ov-caps').textContent = s.captures === null ? 'unreachable' : s.captures;
+    $('ov-c2').textContent = s.c2_checkins === null ? 'unreachable' : s.c2_checkins;
+    $('ov-c2').className = 'v ' + (s.c2_checkins ? 'bad' : 'ok');
+    const deps = $('ov-deps'); deps.replaceChildren();
+    s.deployments.forEach(d => {
+      const ok = !d.error && d.ready === d.desired && d.updated === d.desired;
+      deps.appendChild(row([d.name, d.namespace, el('span', d.error ? 'error' : `${d.ready}/${d.desired}`, ok ? 'ok' : 'warn')]));
+    });
+    const v = $('ov-verdicts'); v.replaceChildren();
+    s.verdicts.latest.slice().reverse().forEach(x =>
+      v.appendChild(row([el('span', x.verdict, x.verdict === 'CONTAINED' ? 'ok' : 'bad'), x.domain, x.resolved])));
+    if (!s.verdicts.latest.length) v.appendChild(row(['waiting for beacons...', '', '']));
+  } catch (e) { $('hdr-active').textContent = 'error: ' + e.message; }
+}
+
+// scenarios
+let scenarios = [], editingId = null;
+function summary(s) {
+  return `sinkhole ${s.sinkhole_enabled ? 'ON' : 'OFF'} | ${s.malicious_domains.join(', ')} | C2 ${s.attacker_ip} | ` +
+         `${s.infected_endpoints} host(s) every ${s.beacon_interval}s`;
+}
+async function loadScenarios() {
+  try {
+    const d = await api('GET', '/api/scenarios'); scenarios = d.scenarios;
+    const list = $('sc-list'); list.replaceChildren();
+    scenarios.forEach(s => {
+      const name = el('div'); name.appendChild(el('b', s.name));
+      if (s.builtin) name.appendChild(el('span', 'built-in', 'tag'));
+      if (s.id === d.active) name.appendChild(el('span', 'active', 'tag ok'));
+      if (s.description) name.appendChild(el('div', s.description, 'muted'));
+      const acts = el('div', undefined, 'actions');
+      const launch = el('button', 'Launch', 'btn'); launch.onclick = () => launchScenario(s, launch); acts.appendChild(launch);
+      const copy = el('button', s.builtin ? 'Copy' : 'Edit', 'btn sec'); copy.onclick = () => editScenario(s); acts.appendChild(copy);
+      if (!s.builtin) { const del = el('button', 'Delete', 'btn danger'); del.onclick = () => deleteScenario(s); acts.appendChild(del); }
+      list.appendChild(row([name, el('span', summary(s), 'muted'), acts]));
+    });
+  } catch (e) { say('sc-msg', e.message, false); }
+}
+async function launchScenario(s, btn) {
+  if (!confirm(`Launch "${s.name}"? Range pods will restart.`)) return;
+  btn.disabled = true;
+  try {
+    await api('POST', `/api/scenarios/${s.id}/launch`, { clear_captures: $('sc-clear').checked });
+    say('sc-msg', `Launched "${s.name}". Pods are restarting; beacons appear within about ${s.beacon_interval + 20}s.`, true);
+    loadScenarios();
+  } catch (e) { say('sc-msg', e.message, false); }
+  btn.disabled = false;
+}
+async function deleteScenario(s) {
+  if (!confirm(`Delete scenario "${s.name}"?`)) return;
+  try { await api('DELETE', `/api/scenarios/${s.id}`); say('sc-msg', 'Deleted.', true); loadScenarios(); }
+  catch (e) { say('sc-msg', e.message, false); }
+}
+function editScenario(s) {
+  editingId = s.builtin ? null : s.id;
+  $('ed-title').textContent = s.builtin ? 'New scenario (copied from built-in)' : 'Edit scenario';
+  $('f-name').value = s.builtin ? s.name + ' (custom)' : s.name;
+  $('f-desc').value = s.description || '';
+  $('f-domains').value = s.malicious_domains.join('\n');
+  $('f-attacker').value = s.attacker_ip; $('f-endpoints').value = s.infected_endpoints;
+  $('f-benign').value = s.benign_domain; $('f-benign-ip').value = s.benign_ip;
+  $('f-sink-ip').value = s.sinkhole_ip; $('f-interval').value = s.beacon_interval;
+  $('f-sinkhole').checked = s.sinkhole_enabled;
+  $('ed-msg').textContent = '';
+}
+$('ed-reset').onclick = () => {
+  editingId = null; $('ed-title').textContent = 'New custom scenario';
+  ['f-name', 'f-desc', 'f-domains'].forEach(i => $(i).value = '');
+  $('ed-msg').textContent = '';
+};
+$('ed-save').onclick = async () => {
+  const body = {
+    name: $('f-name').value, description: $('f-desc').value, malicious_domains: $('f-domains').value,
+    attacker_ip: $('f-attacker').value, infected_endpoints: $('f-endpoints').value,
+    benign_domain: $('f-benign').value, benign_ip: $('f-benign-ip').value,
+    sinkhole_ip: $('f-sink-ip').value, beacon_interval: $('f-interval').value,
+    sinkhole_enabled: $('f-sinkhole').checked,
+  };
+  if (editingId) body.id = editingId;
+  try {
+    const r = await api('POST', '/api/scenarios', body);
+    editingId = r.saved.id; $('ed-title').textContent = 'Edit scenario';
+    say('ed-msg', `Saved "${r.saved.name}". Launch it from the library.`, true); loadScenarios();
+  } catch (e) { say('ed-msg', e.message, false); }
+};
+
+// captures
+async function loadCaptures() {
+  const rows = $('cap-rows'); rows.replaceChildren();
+  try {
+    const d = await api('GET', '/api/captures');
+    d.captures.forEach(c => rows.appendChild(row([c.time || '', c.client || '', c.domain || c.path || '',
+      [c.event, c.sinkhole_ip && ('sinkhole ' + c.sinkhole_ip)].filter(Boolean).join(' | ')])));
+    if (!d.captures.length) rows.appendChild(row(['no captures yet', '', '', '']));
+  } catch (e) { rows.appendChild(row(['error: ' + e.message, '', '', ''])); }
+}
+$('cap-refresh').onclick = loadCaptures;
+$('cap-clear').onclick = async () => {
+  if (!confirm('Clear all sinkhole captures?')) return;
+  try { await api('POST', '/api/captures/clear', {}); loadCaptures(); } catch (e) { alert(e.message); }
+};
+
+// logs
+async function loadLogs() {
+  try {
+    const d = await api('GET', `/api/logs?component=${encodeURIComponent($('log-comp').value)}&tail=200`);
+    $('log-out').textContent = d.pods.map(p => `===== ${p.pod} =====\n${p.log}`).join('\n') || '(no running pods)';
+    $('log-out').scrollTop = $('log-out').scrollHeight;
+  } catch (e) { $('log-out').textContent = 'error: ' + e.message; }
+}
+$('log-refresh').onclick = loadLogs; $('log-comp').onchange = loadLogs;
+
+// account
+$('pw-save').onclick = async () => {
+  if ($('pw-new').value !== $('pw-new2').value) return say('pw-msg', 'New passwords do not match.', false);
+  try {
+    await api('POST', '/api/password', { current: $('pw-cur').value, new: $('pw-new').value });
+    say('pw-msg', 'Password changed. Sign in again with the new password.', true);
+    setTimeout(() => location.href = '/', 1500);
+  } catch (e) { say('pw-msg', e.message, false); }
+};
+
+setInterval(() => {
+  if (current === 'overview') loadStatus();
+  if (current === 'logs' && $('log-auto').checked) loadLogs();
+}, 5000);
+loadStatus();
+</script>
+</body>
+</html>

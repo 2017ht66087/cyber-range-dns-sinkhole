@@ -26,7 +26,8 @@ SNAP_ARMED="scenario-armed"
 
 # Scenario resolution targets (mirror ../config/inventory.psd1).
 SINKHOLE_IP="10.10.60.5"
-INTERNAL_DNS="10.10.20.10"
+# Laptop trim: SVC-DC is not deployed. Path A uses SVC-SINK.
+INTERNAL_DNS="10.10.20.11"
 EXTERNAL_DNS="10.10.50.53"
 ATTACKER_IP="10.10.40.10"
 MAL_DOMAIN="updates.evil-c2.range"

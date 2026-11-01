@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the five range images with Docker and import them into k3s' containerd
+# Build the range images (5 range services + fake-internet + range-console + corp servers) with Docker and import them into k3s' containerd
 # image store (namespace k8s.io) so the pods can use them with
 # imagePullPolicy: IfNotPresent and no external registry.
 set -euo pipefail
@@ -15,7 +15,10 @@ if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 DOCKER="docker"
 if ! docker info >/dev/null 2>&1; then DOCKER="$SUDO docker"; fi
 
-IMAGES="internal-dns external-dns firewall-sim sinkhole infected-pc"
+IMAGES="${IMAGES:-internal-dns external-dns firewall-sim sinkhole infected-pc fake-internet range-console corp-samba-dc corp-web02}"
+# Public images used by the corp servers (manifests/corp-servers.yaml), pre-pulled
+# so the range runs without internet afterwards. Skip with PULL_IMAGES="".
+PULL_IMAGES="${PULL_IMAGES-postgres:16-alpine mariadb:11.4 nginx:1.27-alpine}"
 
 for name in $IMAGES; do
   say "Building $name:latest ..."
@@ -25,5 +28,11 @@ for name in $IMAGES; do
   ok "$name:latest ready in k3s"
 done
 
-ok "All images built + imported. Verify:  sudo k3s ctr -n k8s.io images ls | grep -E 'internal-dns|external-dns|firewall-sim|sinkhole|infected-pc'"
+for ref in $PULL_IMAGES; do
+  say "Pulling $ref into k3s containerd ..."
+  $SUDO k3s crictl pull "docker.io/library/$ref" >/dev/null
+  ok "$ref ready in k3s"
+done
+
+ok "All images built + imported. Verify:  sudo k3s ctr -n k8s.io images ls | grep -E 'internal-dns|external-dns|firewall-sim|sinkhole|infected-pc|fake-internet|range-console'"
 ok "Next: ./03-deploy.sh with   (or: without)"

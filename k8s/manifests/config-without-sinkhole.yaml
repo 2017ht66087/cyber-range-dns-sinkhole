@@ -1,6 +1,7 @@
 # Variant B: DNS sinkhole DISABLED (uncontained).
 # Malicious lookups are forwarded to the attacker-aware external resolver and
 # resolve to the real attacker IP -> the "what goes wrong" path.
+# MALICIOUS_DOMAIN may be a comma-separated list (custom scenarios).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,3 +12,17 @@ data:
   SINKHOLE_IP: "10.255.255.10"
   MALICIOUS_DOMAIN: "teq.xyz.com"
   ALT_DOMAIN: "abc.com"
+  BEACON_INTERVAL: "20"
+  SCENARIO_ID: "baseline-uncontained"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: range-mode
+  namespace: dns-system
+data:
+  MALICIOUS_DOMAIN: "teq.xyz.com"
+  ATTACKER_IP: "203.0.113.66"
+  ALT_DOMAIN: "abc.com"
+  BENIGN_IP: "10.0.0.50"
+  BENIGN_PUBLIC_IP: "93.184.216.34"

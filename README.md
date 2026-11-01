@@ -10,9 +10,16 @@ C2, no real internet.**
 > it cannot host persistent nested VMs and violates the "no real internet"
 > rule. Host on VMware Workstation on a normal machine.
 
+> **Do not mix labs on this PC.** `ODS-Ubuntu` is the CSI Nora / local-LLM box.
+> `range-host` is the only place the cyber range should run (nested KVM).
+> Tails is an unrelated privacy guest. Do not install CSI Nora on range-host,
+> and do not put range VMs on ODS-Ubuntu or Tails.
+
 ## Host requirements
 - VMware Workstation (provides `vmrun.exe` + `vnetlib64.exe`)
-- ~24 GB+ RAM, 8+ vCPU, 200 GB+ free disk (see `config/inventory.psd1` to scale)
+- This laptop uses a **trimmed** 5-VM inventory (~7 GB guests). Full 14-VM design
+  is in `ubuntu/inventory/vms.full.tsv` and the `Enabled=$false` rows in
+  `config/inventory.psd1`. Give `range-host` 8–12 GB before deploying.
 - Base VM templates under `C:\CyberRange\Templates\<template>\<template>.vmx`
   (pfSense, Security Onion, Windows Server 2022, Windows 10, Debian 12,
   Ubuntu 22, Kali) — you supply these golden images and their licensing.

@@ -35,7 +35,7 @@ ram=$(awk '/MemTotal/{printf "%.1f",$2/1048576}' /proc/meminfo 2>/dev/null || ec
 cpu=$(nproc 2>/dev/null || echo "?")
 free=$(df -BG --output=avail "$(dirname "$POOL_DIR")" 2>/dev/null | tail -1 | tr -dc '0-9' || echo "?")
 say "RAM=${ram}GB vCPU=${cpu} Free(${POOL_DIR%/*})=${free}GB"
-awk "BEGIN{exit !($ram < 24)}" 2>/dev/null && warn "RAM < 24GB: trim endpoints/memory in vms.tsv"
+awk "BEGIN{exit !($ram < 10)}" 2>/dev/null && warn "RAM < 10GB: trimmed inventory still needs ~7GB guests + host OS"
 
 # --- Inventory ---
 [ -f "$INV_NET" ] && ok "networks.tsv: $(tsv "$INV_NET" | wc -l) networks" || { err "missing $INV_NET"; pass=1; }

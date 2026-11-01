@@ -1,0 +1,696 @@
+# corp.lab - thin "corporate" servers inside the cyber range (namespace corp).
+#
+#   dc01  Samba AD DC (primary, provisions CORP.LAB)   corp-samba-dc:latest  10.43.200.11
+#   dc02  Samba AD DC (joins dc01, DRS replication)     corp-samba-dc:latest  10.43.200.12
+#   db01  PostgreSQL 16 (hr.employees / hr.payroll)     postgres:16-alpine    10.43.200.21
+#   db02  MariaDB 11.4  (crm.customers / crm.orders)    mariadb:11.4          10.43.200.22
+#   web01 nginx intranet, proxies /app/ -> web02        nginx:1.27-alpine     10.43.200.31
+#   web02 HR portal (stdlib Python) reading db01+db02   corp-web02:latest     10.43.200.32
+#
+# Fixed ClusterIPs: the DCs register them (not their pod IPs) in AD DNS, so
+# replication survives pod restarts; internal-dns answers <name>.corp.lab with
+# them too. Host access: web01 on NodePort 30088.
+# Passwords live in the corp-credentials Secret, created by scripts/corp-secrets.sh
+# (never in git). Memory: ~0.45 GiB requested / 1.25 GiB limit for all six pods.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: corp
+  labels:
+    kubernetes.io/metadata.name: corp
+    app.kubernetes.io/part-of: cyber-range
+---
+# ------------------------------------------------------------------ AD (Samba)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dc01-data
+  namespace: corp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dc02-data
+  namespace: corp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dc01
+  namespace: corp
+  labels: { app: dc01, tier: identity }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: dc01 }
+  template:
+    metadata:
+      labels: { app: dc01, tier: identity }
+    spec:
+      hostname: dc01
+      enableServiceLinks: false
+      # The DC is its own DNS server (Samba internal DNS forwards the rest to CoreDNS).
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: ["127.0.0.1"]
+        searches: ["corp.lab", "corp.svc.cluster.local", "svc.cluster.local", "cluster.local"]
+        options: [{ name: ndots, value: "1" }]
+      containers:
+      - name: samba
+        image: corp-samba-dc:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - { name: DC_ROLE, value: primary }
+        - { name: REALM, value: CORP.LAB }
+        - { name: DOMAIN, value: CORP }
+        - { name: SERVICE_IP, value: "10.43.200.11" }
+        - { name: DNS_FORWARDER, value: "10.43.0.10" }
+        - name: ADMIN_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: ad-admin-password } }
+        - name: ALICE_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: alice-password } }
+        - name: BOB_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: bob-password } }
+        - name: SVC_SQL_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: svc-sql-password } }
+        - name: DA_TEST_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: da-test-password } }
+        ports:
+        - { name: dns-udp, containerPort: 53, protocol: UDP }
+        - { name: kerberos, containerPort: 88 }
+        - { name: ldap, containerPort: 389 }
+        - { name: smb, containerPort: 445 }
+        startupProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 10
+          failureThreshold: 60
+        readinessProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 15
+        livenessProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 30
+          failureThreshold: 4
+        resources:
+          requests: { cpu: "50m", memory: "160Mi" }
+          limits:   { cpu: "500m", memory: "384Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile: { type: RuntimeDefault }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/samba }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: dc01-data }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dc02
+  namespace: corp
+  labels: { app: dc02, tier: identity }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: dc02 }
+  template:
+    metadata:
+      labels: { app: dc02, tier: identity }
+    spec:
+      hostname: dc02
+      enableServiceLinks: false
+      # dc01 (fixed ClusterIP) answers until dc02's own DNS is up after the join.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: ["10.43.200.11", "127.0.0.1"]
+        searches: ["corp.lab", "corp.svc.cluster.local", "svc.cluster.local", "cluster.local"]
+        options: [{ name: ndots, value: "1" }]
+      containers:
+      - name: samba
+        image: corp-samba-dc:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - { name: DC_ROLE, value: replica }
+        - { name: REALM, value: CORP.LAB }
+        - { name: DOMAIN, value: CORP }
+        - { name: JOIN_SERVER, value: dc01.corp.lab }
+        - { name: SERVICE_IP, value: "10.43.200.12" }
+        - { name: DNS_FORWARDER, value: "10.43.0.10" }
+        - name: ADMIN_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: ad-admin-password } }
+        ports:
+        - { name: dns-udp, containerPort: 53, protocol: UDP }
+        - { name: kerberos, containerPort: 88 }
+        - { name: ldap, containerPort: 389 }
+        - { name: smb, containerPort: 445 }
+        startupProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 10
+          failureThreshold: 90
+        readinessProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 15
+        livenessProbe:
+          tcpSocket: { port: 389 }
+          periodSeconds: 30
+          failureThreshold: 4
+        resources:
+          requests: { cpu: "50m", memory: "160Mi" }
+          limits:   { cpu: "500m", memory: "384Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile: { type: RuntimeDefault }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/samba }
+      volumes:
+      - name: data
+        persistentVolumeClaim: { claimName: dc02-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dc01
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.11
+  selector: { app: dc01 }
+  ports:
+  - { name: dns-udp,      port: 53,   protocol: UDP }
+  - { name: dns-tcp,      port: 53,   protocol: TCP }
+  - { name: kerberos-udp, port: 88,   protocol: UDP }
+  - { name: kerberos-tcp, port: 88,   protocol: TCP }
+  - { name: rpc-epmap,    port: 135,  protocol: TCP }
+  - { name: netbios-ssn,  port: 139,  protocol: TCP }
+  - { name: ldap-udp,     port: 389,  protocol: UDP }
+  - { name: ldap,         port: 389,  protocol: TCP }
+  - { name: smb,          port: 445,  protocol: TCP }
+  - { name: kpasswd-udp,  port: 464,  protocol: UDP }
+  - { name: kpasswd-tcp,  port: 464,  protocol: TCP }
+  - { name: ldaps,        port: 636,  protocol: TCP }
+  - { name: gc,           port: 3268, protocol: TCP }
+  - { name: gc-ssl,       port: 3269, protocol: TCP }
+  - { name: rpc-drs,      port: 49152, protocol: TCP }
+  - { name: rpc-netlogon, port: 49153, protocol: TCP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dc02
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.12
+  selector: { app: dc02 }
+  ports:
+  - { name: dns-udp,      port: 53,   protocol: UDP }
+  - { name: dns-tcp,      port: 53,   protocol: TCP }
+  - { name: kerberos-udp, port: 88,   protocol: UDP }
+  - { name: kerberos-tcp, port: 88,   protocol: TCP }
+  - { name: rpc-epmap,    port: 135,  protocol: TCP }
+  - { name: netbios-ssn,  port: 139,  protocol: TCP }
+  - { name: ldap-udp,     port: 389,  protocol: UDP }
+  - { name: ldap,         port: 389,  protocol: TCP }
+  - { name: smb,          port: 445,  protocol: TCP }
+  - { name: kpasswd-udp,  port: 464,  protocol: UDP }
+  - { name: kpasswd-tcp,  port: 464,  protocol: TCP }
+  - { name: ldaps,        port: 636,  protocol: TCP }
+  - { name: gc,           port: 3268, protocol: TCP }
+  - { name: gc-ssl,       port: 3269, protocol: TCP }
+  - { name: rpc-drs,      port: 49152, protocol: TCP }
+  - { name: rpc-netlogon, port: 49153, protocol: TCP }
+---
+# ------------------------------------------------------------------- databases
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db01-init
+  namespace: corp
+data:
+  10-seed.sh: |
+    # Sourced by the postgres entrypoint on first init only (fake data).
+    psql -v ON_ERROR_STOP=1 -v web_pw="$WEB_RO_PASSWORD" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+    CREATE SCHEMA hr;
+    CREATE TABLE hr.employees (
+      emp_id int PRIMARY KEY, full_name text NOT NULL, department text, title text,
+      ad_account text, email text, hired date);
+    INSERT INTO hr.employees VALUES
+      (1001, 'Alice Anders',  'IT',      'Systems Administrator', 'CORP\alice',   'alice@corp.lab', '2019-03-11'),
+      (1002, 'Bob Brown',     'Finance', 'Accountant',            'CORP\bob',     'bob@corp.lab',   '2021-07-01'),
+      (1003, 'Carol Chen',    'HR',      'HR Business Partner',   NULL,           'carol@corp.lab', '2018-01-15'),
+      (1004, 'Dave Diaz',     'Sales',   'Account Executive',     NULL,           'dave@corp.lab',  '2022-09-19'),
+      (1005, 'Erin Evans',    'IT',      'Helpdesk Technician',   NULL,           'erin@corp.lab',  '2023-02-06'),
+      (1006, 'SQL Service',   'IT',      'Service account',       'CORP\svc-sql', NULL,             '2020-05-05');
+    CREATE TABLE hr.payroll (
+      emp_id int REFERENCES hr.employees, salary_usd int, bank_iban text);
+    INSERT INTO hr.payroll VALUES
+      (1001, 98000,  'XX00 LAB0 0000 0000 1001'), (1002, 72000, 'XX00 LAB0 0000 0000 1002'),
+      (1003, 81000,  'XX00 LAB0 0000 0000 1003'), (1004, 69000, 'XX00 LAB0 0000 0000 1004'),
+      (1005, 54000,  'XX00 LAB0 0000 0000 1005');
+    CREATE ROLE web_ro LOGIN PASSWORD :'web_pw';
+    GRANT CONNECT ON DATABASE corp TO web_ro;
+    GRANT USAGE ON SCHEMA hr TO web_ro;
+    GRANT SELECT ON hr.employees TO web_ro;   -- payroll stays private (exfil target)
+    SQL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db01
+  namespace: corp
+  labels: { app: db01, tier: data }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: db01 }
+  template:
+    metadata:
+      labels: { app: db01, tier: data }
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        imagePullPolicy: IfNotPresent
+        args: ["-c", "shared_buffers=16MB", "-c", "max_connections=20", "-c", "work_mem=1MB",
+               "-c", "maintenance_work_mem=8MB", "-c", "effective_cache_size=48MB",
+               "-c", "wal_buffers=1MB", "-c", "max_wal_size=64MB"]
+        env:
+        - { name: POSTGRES_DB, value: corp }
+        - { name: POSTGRES_USER, value: postgres }
+        - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+        - name: POSTGRES_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db01-postgres-password } }
+        - name: WEB_RO_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db01-web-password } }
+        ports:
+        - { name: postgres, containerPort: 5432 }
+        # -h 127.0.0.1: TCP is only opened after the init scripts finished.
+        readinessProbe:
+          exec: { command: ["pg_isready", "-q", "-h", "127.0.0.1", "-U", "postgres", "-d", "corp"] }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          exec: { command: ["pg_isready", "-q", "-h", "127.0.0.1", "-U", "postgres", "-d", "corp"] }
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        resources:
+          requests: { cpu: "20m", memory: "48Mi" }
+          limits:   { cpu: "300m", memory: "160Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile: { type: RuntimeDefault }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/postgresql/data }
+        - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+      - name: data
+        emptyDir: { sizeLimit: 256Mi }
+      - name: init
+        configMap: { name: db01-init }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db02-init
+  namespace: corp
+data:
+  10-seed.sh: |
+    # Sourced by the mariadb entrypoint on first init only (fake data).
+    docker_process_sql --database="$MARIADB_DATABASE" <<SQL
+    CREATE TABLE customers (
+      id INT PRIMARY KEY, company VARCHAR(64), contact VARCHAR(64), email VARCHAR(64),
+      country CHAR(2), tier VARCHAR(16));
+    INSERT INTO customers VALUES
+      (1, 'Acme Widgets',      'Wile Coyote',  'wile@acme.example',      'US', 'gold'),
+      (2, 'Globex Corp',       'Hank Scorpio', 'hank@globex.example',    'US', 'platinum'),
+      (3, 'Initech',           'Bill Lumbergh','bill@initech.example',   'US', 'silver'),
+      (4, 'Umbrella Pharma',   'Albert Wesker','wesker@umbrella.example','GB', 'gold'),
+      (5, 'Soylent Foods',     'Sol Roth',     'sol@soylent.example',    'DE', 'bronze');
+    CREATE TABLE orders (
+      id INT PRIMARY KEY, customer_id INT, amount_usd DECIMAL(10,2), card_last4 CHAR(4), placed DATE);
+    INSERT INTO orders VALUES
+      (5001, 1, 1200.00, '4242', '2026-09-01'), (5002, 2, 98000.50, '1881', '2026-09-14'),
+      (5003, 4, 4300.00, '0005', '2026-10-02'), (5004, 3, 250.75, '3110', '2026-10-20');
+    CREATE USER 'web_ro'@'%' IDENTIFIED BY '$WEB_RO_PASSWORD';
+    GRANT SELECT ON $MARIADB_DATABASE.customers TO 'web_ro'@'%';
+    SQL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db02
+  namespace: corp
+  labels: { app: db02, tier: data }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: db02 }
+  template:
+    metadata:
+      labels: { app: db02, tier: data }
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: mariadb
+        image: mariadb:11.4
+        imagePullPolicy: IfNotPresent
+        args: ["--innodb-buffer-pool-size=16M", "--innodb-log-buffer-size=1M", "--performance-schema=OFF",
+               "--max-connections=20", "--skip-name-resolve", "--key-buffer-size=1M",
+               "--aria-pagecache-buffer-size=8M", "--table-open-cache=64", "--thread-cache-size=2",
+               "--tmp-table-size=4M", "--max-heap-table-size=4M"]
+        env:
+        - { name: MARIADB_DATABASE, value: crm }
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db02-root-password } }
+        - name: WEB_RO_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db02-web-password } }
+        ports:
+        - { name: mysql, containerPort: 3306 }
+        readinessProbe:
+          exec: { command: ["healthcheck.sh", "--connect", "--innodb_initialized"] }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          exec: { command: ["healthcheck.sh", "--connect"] }
+          initialDelaySeconds: 90
+          periodSeconds: 30
+        resources:
+          requests: { cpu: "20m", memory: "96Mi" }
+          limits:   { cpu: "300m", memory: "256Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile: { type: RuntimeDefault }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/mysql }
+        - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+      - name: data
+        emptyDir: { sizeLimit: 512Mi }
+      - name: init
+        configMap: { name: db02-init }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db01
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.21
+  selector: { app: db01 }
+  ports:
+  - { name: postgres, port: 5432, targetPort: 5432 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db02
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.22
+  selector: { app: db02 }
+  ports:
+  - { name: mysql, port: 3306, targetPort: 3306 }
+---
+# ------------------------------------------------------------------------- web
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web01-content
+  namespace: corp
+data:
+  default.conf: |
+    server {
+      listen 80 default_server;
+      server_name web01.corp.lab intranet.corp.lab _;
+      server_tokens off;
+      root /usr/share/nginx/html;
+      location = /healthz { access_log off; default_type text/plain; return 200 "ok\n"; }
+      location / { try_files $uri $uri/ =404; }
+      # 3-tier demo: web01 (presentation) -> web02 (app) -> db01/db02 (data)
+      location /app/ {
+        proxy_pass http://web02.corp.svc.cluster.local:8080/;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+      }
+    }
+  index.html: |
+    <!doctype html><html><head><meta charset="utf-8"><title>CORP Intranet</title>
+    <style>body{font-family:sans-serif;margin:2em;background:#f6f7f9}td,th{border:1px solid #ccc;padding:4px 10px}
+    table{border-collapse:collapse;background:#fff}th{background:#2d4a7a;color:#fff}</style></head>
+    <body><h1>CORP Intranet</h1><p>Welcome to corp.lab (web01). Lab-only fake company.</p>
+    <p><a href="/app/">HR portal (web02 &rarr; db01/db02)</a></p>
+    <h2>Servers</h2><table><tr><th>Host</th><th>Role</th></tr>
+    <tr><td>dc01.corp.lab</td><td>Active Directory DC (primary, CORP.LAB)</td></tr>
+    <tr><td>dc02.corp.lab</td><td>Active Directory DC (replica)</td></tr>
+    <tr><td>db01.corp.lab</td><td>PostgreSQL - HR database</td></tr>
+    <tr><td>db02.corp.lab</td><td>MariaDB - CRM database</td></tr>
+    <tr><td>web01.corp.lab</td><td>Intranet (this site)</td></tr>
+    <tr><td>web02.corp.lab</td><td>HR portal application</td></tr></table>
+    <h2>Notices</h2><ul><li>IT helpdesk: contact alice@corp.lab for password resets.</li>
+    <li>Reminder: the SQL service account (svc-sql) is owned by IT.</li></ul></body></html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web01
+  namespace: corp
+  labels: { app: web01, tier: web }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web01 }
+  template:
+    metadata:
+      labels: { app: web01, tier: web }
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - { name: NGINX_ENTRYPOINT_WORKER_PROCESSES_AUTOTUNE, value: "1" }
+        ports:
+        - { name: http, containerPort: 80 }
+        readinessProbe:
+          httpGet: { path: /healthz, port: 80 }
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: { path: /healthz, port: 80 }
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests: { cpu: "5m", memory: "8Mi" }
+          limits:   { cpu: "100m", memory: "32Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          seccompProfile: { type: RuntimeDefault }
+        volumeMounts:
+        - { name: content, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+        - { name: content, mountPath: /usr/share/nginx/html/index.html, subPath: index.html, readOnly: true }
+      volumes:
+      - name: content
+        configMap: { name: web01-content }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web02
+  namespace: corp
+  labels: { app: web02, tier: app }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web02 }
+  template:
+    metadata:
+      labels: { app: web02, tier: app }
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+      - name: app
+        image: corp-web02:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - { name: DB01_HOST, value: db01.corp.svc.cluster.local }
+        - { name: DB02_HOST, value: db02.corp.svc.cluster.local }
+        - name: DB01_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db01-web-password } }
+        - name: DB02_PASSWORD
+          valueFrom: { secretKeyRef: { name: corp-credentials, key: db02-web-password } }
+        ports:
+        - { name: http, containerPort: 8080 }
+        readinessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: { path: /healthz, port: 8080 }
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests: { cpu: "10m", memory: "16Mi" }
+          limits:   { cpu: "200m", memory: "64Mi" }
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: { drop: ["ALL"] }
+          seccompProfile: { type: RuntimeDefault }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web01
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.31
+  selector: { app: web01 }
+  ports:
+  - { name: http, port: 80, targetPort: 80 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web02
+  namespace: corp
+spec:
+  clusterIP: 10.43.200.32
+  selector: { app: web02 }
+  ports:
+  - { name: http, port: 8080, targetPort: 8080 }
+---
+# Intranet from the Windows host: http://192.168.9.50:30088/
+# externalTrafficPolicy Local keeps the client IP so the NetworkPolicy below
+# can restrict it to the VMnet8 NAT subnet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web01-nodeport
+  namespace: corp
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector: { app: web01 }
+  ports:
+  - { name: http, port: 80, targetPort: 80, nodePort: 30088 }
+---
+# -------------------------------------------------------------- NetworkPolicy
+# Default-deny both ways, then: anything inside corp (web->db, DC<->DC DRS/DNS,
+# clients->DC), DNS to CoreDNS (the DCs forward there), kubelet probes from the
+# node, and the intranet NodePort from VMnet8. No other egress = no internet
+# once the images are pulled. Cross-namespace access (infected-pc lateral
+# movement) is opt-in: manifests/corp-lateral.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: corp
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-corp
+  namespace: corp
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+  - from:
+    - podSelector: {}
+  egress:
+  - to:
+    - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-coredns-egress
+  namespace: corp
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - { port: 53, protocol: UDP }
+    - { port: 53, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-node-probes
+  namespace: corp
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - ipBlock: { cidr: 10.42.0.1/32 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intranet-from-host
+  namespace: corp
+spec:
+  podSelector:
+    matchLabels: { app: web01 }
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - ipBlock: { cidr: 192.168.9.0/24 }
+    ports:
+    - { port: 80, protocol: TCP }
+---
+# ---------------------------------------- range console (status + logs, read-only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: range-console-operator
+  namespace: corp
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: range-console-operator
+  namespace: corp
+subjects:
+- kind: ServiceAccount
+  name: range-console
+  namespace: range-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: range-console-operator

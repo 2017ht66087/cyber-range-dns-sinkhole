@@ -19,7 +19,8 @@ Apply on pfSense/OPNsense. Interface mapping:
 |---|---|---|---|---|---|---|
 | R1 | MGMT | 10.10.10.0/24 | any zone | 22,3389,5985-5986,443 | PASS | Admin from bastion only |
 | R2 | any | any | 10.10.20.20 (SVC-LOG) | 514/udp,1514/tcp,443 | PASS | Central logging |
-| R3 | USERS | 10.10.30.0/24 | 10.10.20.10 (SVC-DC) | 53,88,389,445,135 | PASS | AD auth + internal DNS (Path A) |
+| R3 | USERS | 10.10.30.0/24 | 10.10.20.10 (SVC-DC) | 53,88,389,445,135 | PASS | AD auth + internal DNS (full design only) |
+| R3b | USERS | 10.10.30.0/24 | 10.10.20.11 (SVC-SINK) | 53 | PASS | Laptop trim: Path A DNS is SVC-SINK (SVC-DC not deployed) |
 | R4 | USERS | 10.10.30.0/24 | 10.10.50.53 (EXT-DNS) | 53 | PASS/BLOCK | **Scenario toggle** (Path B only) |
 | R5 | USERS | 10.10.30.0/24 | 10.10.50.80 (INetSim) | 80,443 | PASS | Mock internet browsing |
 | R6 | USERS | 10.10.30.0/24 | 10.10.40.10 (ATK-C2) | 80,443 | PASS/BLOCK | **Scenario toggle** (Path B only) |
@@ -28,7 +29,7 @@ Apply on pfSense/OPNsense. Interface mapping:
 | D0 | ALL | any | any | any | **BLOCK + LOG** | Default deny on every interface |
 
 ## Scenario toggle mapping (see scenario/scenario-toggle.ps1)
-- **Path A (sinkhole ON):** R4 = BLOCK, R6 = BLOCK, endpoints' DHCP DNS = 10.10.20.10.
+- **Path A (sinkhole ON):** R4 = BLOCK, R6 = BLOCK, endpoints' DHCP DNS = 10.10.20.11 (SVC-SINK on this laptop; 10.10.20.10 if SVC-DC is restored).
 - **Path B (sinkhole OFF):** R4 = PASS, R6 = PASS, endpoints' DHCP DNS = 10.10.50.53.
 
 ## Aliases to define

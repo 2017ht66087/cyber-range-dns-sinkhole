@@ -22,7 +22,8 @@ KUBECTL="${KUBECTL:-sudo k3s kubectl}"
 say "Swapping range-mode ConfigMap -> $VARIANT ..."
 $KUBECTL apply -f "$M/$CFG"
 
-say "Restarting firewall-sim + infected-pc to pick up new config ..."
+say "Restarting DNS, firewall-sim + infected-pc to pick up new config ..."
+$KUBECTL -n dns-system  rollout restart deploy/internal-dns deploy/external-dns
 $KUBECTL -n cyber-range rollout restart deploy/firewall-sim deploy/infected-pc
 $KUBECTL -n cyber-range rollout status  deploy/firewall-sim --timeout=120s
 $KUBECTL -n cyber-range rollout status  deploy/infected-pc  --timeout=120s

@@ -8,7 +8,14 @@ $ErrorActionPreference = 'Stop'
 function Get-RangeInventory {
     $invPath = Join-Path $PSScriptRoot '..\config\inventory.psd1'
     if (-not (Test-Path $invPath)) { throw "Inventory not found at $invPath" }
-    return Import-PowerShellDataFile -Path $invPath
+    $inv = Import-PowerShellDataFile -Path $invPath
+    # Enabled=$false rows stay in the file as the full design, but deploy/boot skip them.
+    if ($inv.ContainsKey('VMs')) {
+        $inv.VMs = @($inv.VMs | Where-Object {
+            -not $_.ContainsKey('Enabled') -or $_.Enabled
+        })
+    }
+    return $inv
 }
 
 function Find-VMwareTool {

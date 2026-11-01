@@ -6,6 +6,7 @@
 
     Settings = @{
         RangeName        = 'PurpleRange'
+        # This laptop: only Enabled=$true (or omitted) VMs are deployed. See host-vm README.
         BaseVMPath       = 'C:\CyberRange\VMs'          # where clones are created
         TemplatePath     = 'C:\CyberRange\Templates'    # golden base .vmx templates live here
         SnapshotArmed    = 'scenario-armed'
@@ -13,7 +14,8 @@
 
         # Scenario resolution targets
         SinkholeIP       = '10.10.60.5'    # dead-end sink listener (SOC zone)
-        InternalDNS      = '10.10.20.10'   # SVC-DC (Path A / sinkhole ON)
+        # Laptop trim: SVC-DC is not deployed. Path A uses the sinkhole resolver.
+        InternalDNS      = '10.10.20.11'   # SVC-SINK (Path A / sinkhole ON)
         SinkholeDNS      = '10.10.20.11'   # SVC-SINK resolver
         ExternalDNS      = '10.10.50.53'   # EXT-DNS (Path B / sinkhole OFF)
         AttackerIP       = '10.10.40.10'   # ATK-C2
@@ -38,34 +40,36 @@
            Nics=@('VMnet10','VMnet11','VMnet12','VMnet13','VMnet14','VMnet15'); IP='per-leg .1' }
 
         @{ Name='SOC-SEConion'; Role='siem';       Template='template-securityonion'; CPU=4; MemMB=8192; BootTier=2;
-           Nics=@('VMnet15'); IP='10.10.60.10' }
-        @{ Name='SVC-LOG';      Role='logging';    Template='template-ubuntu22';     CPU=2; MemMB=4096; BootTier=2;
+           Nics=@('VMnet15'); IP='10.10.60.10'; Enabled=$false }
+        @{ Name='SVC-LOG';      Role='logging';    Template='template-ubuntu22';     CPU=1; MemMB=1024; BootTier=2;
            Nics=@('VMnet11'); IP='10.10.20.20' }
         @{ Name='SOC-DASH';     Role='dashboards'; Template='template-ubuntu22';     CPU=2; MemMB=4096; BootTier=2;
-           Nics=@('VMnet15'); IP='10.10.60.20' }
+           Nics=@('VMnet15'); IP='10.10.60.20'; Enabled=$false }
 
         @{ Name='MGMT-JUMP';    Role='bastion';    Template='template-debian12';     CPU=2; MemMB=2048; BootTier=3;
-           Nics=@('VMnet10'); IP='10.10.10.10' }
+           Nics=@('VMnet10'); IP='10.10.10.10'; Enabled=$false }
         @{ Name='MGMT-ORCH';    Role='ansible';    Template='template-debian12';     CPU=2; MemMB=2048; BootTier=3;
-           Nics=@('VMnet10'); IP='10.10.10.20' }
+           Nics=@('VMnet10'); IP='10.10.10.20'; Enabled=$false }
         @{ Name='MGMT-BKP';     Role='backup';     Template='template-debian12';     CPU=1; MemMB=2048; BootTier=3;
-           Nics=@('VMnet10'); IP='10.10.10.30' }
+           Nics=@('VMnet10'); IP='10.10.10.30'; Enabled=$false }
 
+        # SVC-DC stays disabled (memory): AD is provided in-cluster instead by the k3s
+        # corp servers (dc01/dc02 Samba AD DCs, realm CORP.LAB) - see k8s/README.md.
         @{ Name='SVC-DC';       Role='ad-dns';     Template='template-win2022';      CPU=2; MemMB=4096; BootTier=4;
-           Nics=@('VMnet11'); IP='10.10.20.10' }
+           Nics=@('VMnet11'); IP='10.10.20.10'; Enabled=$false }
         @{ Name='SVC-SINK';     Role='sinkhole';   Template='template-debian12';     CPU=1; MemMB=1024; BootTier=4;
            Nics=@('VMnet11'); IP='10.10.20.11' }
 
         @{ Name='EXT-DNS';      Role='ext-dns';    Template='template-debian12';     CPU=1; MemMB=1024; BootTier=5;
            Nics=@('VMnet14'); IP='10.10.50.53' }
         @{ Name='EXT-INETSIM';  Role='mock-inet';  Template='template-debian12';     CPU=2; MemMB=2048; BootTier=5;
-           Nics=@('VMnet14'); IP='10.10.50.80' }
+           Nics=@('VMnet14'); IP='10.10.50.80'; Enabled=$false }
         @{ Name='ATK-C2';       Role='attacker';   Template='template-kali';         CPU=2; MemMB=2048; BootTier=5;
-           Nics=@('VMnet13'); IP='10.10.40.10' }
+           Nics=@('VMnet13'); IP='10.10.40.10'; Enabled=$false }
 
         @{ Name='EP-CLEAN';     Role='endpoint';   Template='template-win10';        CPU=2; MemMB=4096; BootTier=6;
-           Nics=@('VMnet12'); IP='dhcp (.100)' }
-        @{ Name='EP-INFECTED';  Role='endpoint';   Template='template-win10';        CPU=2; MemMB=4096; BootTier=6;
+           Nics=@('VMnet12'); IP='dhcp (.100)'; Enabled=$false }
+        @{ Name='EP-INFECTED';  Role='endpoint';   Template='template-win10';        CPU=1; MemMB=2048; BootTier=6;
            Nics=@('VMnet12'); IP='dhcp (.101)' }
     )
 }
