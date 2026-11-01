@@ -16,8 +16,7 @@ The container image is the same for both — only the `range-mode` ConfigMap cha
 The consolidated host → VM → namespace picture and the step-by-step data/log
 flows (sinkhole ON, sinkhole OFF, corp 3-tier, opt-in lateral) live in the
 kit [README](../README.md#architecture). Playable version:
-[architecture animation](https://2017ht66087.github.io/cyber-range-dns-sinkhole/)
-([`docs/index.html`](../docs/index.html) offline). This page is the k3s deploy detail.
+[`docs/index.html`](../docs/index.html) (open in a browser). This page is the k3s deploy detail.
 
 ```
  ns cyber-range              ns dns-system           ns fake-internet
