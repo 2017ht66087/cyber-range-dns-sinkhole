@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyber range — architecture and data/log flow</title>
+<style>
+  :root {
+    --bg: #0b1021; --panel: #141b33; --line: #263042; --muted: #9aa4b2;
+    --fg: #e6e6e6; --accent: #5cd6ff; --ok: #3fd68f; --bad: #ff7a7a;
+    --warn: #ffc65c; --evidence: #c59bff; --control: #ff9b4a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 1rem 1.25rem .5rem; }
+  header h1 { margin: 0 0 .35rem; font-size: 1.25rem; color: var(--accent); }
+  header p { margin: 0; color: var(--muted); font-size: .9rem; max-width: 1100px; }
+  .bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .75rem 1.25rem; }
+  .pill, button { border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: .35rem .85rem; cursor: pointer; font: inherit; font-size: .85rem; }
+  .pill.on { background: var(--accent); color: #06121d; border-color: var(--accent); font-weight: 600; }
+  button.primary { background: var(--accent); color: #06121d; border-color: var(--accent); font-weight: 600; }
+  .note { color: var(--muted); font-size: .8rem; padding: 0 1.25rem .5rem; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; padding: 0 1.25rem 1.25rem; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+  .diagram { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: #0d1328; overflow: auto; }
+  svg { width: 100%; height: auto; display: block; }
+  .side { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+  .side h2 { margin: 0 0 .5rem; font-size: 1rem; }
+  .caption { font-size: .9rem; line-height: 1.45; }
+  .log { margin-top: .75rem; background: #05080f; border: 1px solid var(--line); border-radius: 6px; padding: .6rem .7rem; font: 11.5px/1.45 ui-monospace, Consolas, monospace; color: #c8d0dc; white-space: pre-wrap; }
+  .log .hint { color: var(--muted); font-family: inherit; margin-top: .4rem; }
+  .steps { margin: .85rem 0 0; padding: 0; list-style: none; }
+  .steps li { padding: .3rem .45rem; border-radius: 4px; color: var(--muted); font-size: .8rem; cursor: pointer; }
+  .steps li.on { background: #1d2644; color: var(--fg); }
+  .meta { padding: 0 1.25rem 2rem; display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; }
+  @media (max-width: 980px) { .meta { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th, td { text-align: left; padding: .4rem .45rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  a { color: var(--accent); }
+  .legend { font-size: .82rem; color: var(--muted); }
+  .legend div { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+  h3 { font-size: .95rem; margin: 0 0 .5rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cyber range: architecture and data/log flow</h1>
+  <p>Playable view of the live k3s range on range-host (192.168.9.50). Packets move along the current step. Use the scenario pills and Play / Pause / Next. Source: <a href="https://github.com/2017ht66087/cyber-range-dns-sinkhole">2017ht66087/cyber-range-dns-sinkhole</a>.</p>
+</header>
+<div class="bar" id="pills"></div>
+<div class="bar">
+  <button id="prev">Prev</button>
+  <button id="play" class="primary">Pause</button>
+  <button id="next">Next</button>
+  <span class="legend" id="progress"></span>
+</div>
+<p class="note" id="scenario-note"></p>
+<div class="layout">
+  <div class="diagram"><svg id="svg" viewBox="0 0 1240 890"></svg></div>
+  <aside class="side">
+    <div class="legend" id="stepn"></div>
+    <h2 id="title"></h2>
+    <p class="caption" id="caption"></p>
+    <div class="log" id="log" hidden></div>
+    <ol class="steps" id="steps"></ol>
+  </aside>
+</div>
+<div class="meta">
+  <div>
+    <h3>Legend</h3>
+    <div class="legend">
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#5cd6ff" stroke-width="2"/><circle cx="28" cy="5" r="4" fill="#5cd6ff"/></svg> DNS / HTTP / DB</div>
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#ff7a7a" stroke-width="2"/><circle cx="28" cy="5" r="4" fill="#ff7a7a"/></svg> Malicious beacon</div>
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#3fd68f" stroke-width="2"/><circle cx="28" cy="5" r="4" fill="#3fd68f"/></svg> Sinkhole / capture</div>
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#c59bff" stroke-width="2"/><circle cx="28" cy="5" r="4" fill="#c59bff"/></svg> Logs and evidence</div>
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#ff9b4a" stroke-width="2"/><circle cx="28" cy="5" r="4" fill="#ff9b4a"/></svg> Control (PATCH / restart)</div>
+      <div><svg width="34" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#9aa4b2" stroke-width="1.5" stroke-dasharray="5 4"/></svg> Opt-in corp-lateral (off)</div>
+    </div>
+  </div>
+  <div>
+    <h3>Endpoints on range-host</h3>
+    <table>
+      <thead><tr><th>Service</th><th>Address</th></tr></thead>
+      <tbody>
+        <tr><td>Range console</td><td>http://192.168.9.50:30090/</td></tr>
+        <tr><td>Sinkhole dashboard</td><td>http://192.168.9.50:30080/</td></tr>
+        <tr><td>Fake internet</td><td>http://192.168.9.50:30081/</td></tr>
+        <tr><td>Corp intranet</td><td>http://192.168.9.50:30088/</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+const KIND = { net: "#5cd6ff", threat: "#ff7a7a", contained: "#3fd68f", evidence: "#c59bff", control: "#ff9b4a" };
+const NODES = {
+  browser: { x: 30, y: 40, w: 200, h: 44, title: "Operator browser", sub: "Windows host · 192.168.9.1" },
+  ssh: { x: 30, y: 96, w: 200, h: 44, title: "SSH + kubectl", sub: "range@192.168.9.50 · range_key" },
+  vmnet8: { x: 260, y: 40, w: 250, h: 44, title: "VMnet8 · NAT", sub: "192.168.9.0/24 · gw .2 · host .1" },
+  vmnet0: { x: 260, y: 96, w: 250, h: 44, title: "VMnet0 · bridged", sub: "on Hyper-V vSwitch · Wi-Fi pending", state: "warn" },
+  ods: { x: 540, y: 96, w: 220, h: 44, title: "ODS-Ubuntu (not range)", sub: "bridged · powered off · ODS lab", state: "off" },
+  pc: { x: 50, y: 245, w: 150, h: 56, title: "infected-pc", sub: "10.42.0.141 · beacon 20s" },
+  fw: { x: 270, y: 245, w: 170, h: 56, title: "firewall-sim", sub: "svc :8053 · NodePort 30053" },
+  sink: { x: 270, y: 370, w: 170, h: 56, title: "sinkhole", sub: "svc :8080 · NodePort 30080" },
+  cmcr: { x: 270, y: 470, w: 170, h: 48, title: "ConfigMap range-mode", sub: "SINKHOLE_ENABLED=true" },
+  sinkip: { x: 50, y: 400, w: 150, h: 52, title: "10.255.255.10", sub: "SINKHOLE_IP · no egress", state: "blocked" },
+  intdns: { x: 496, y: 247, w: 180, h: 52, title: "internal-dns", sub: "abc.com, *.corp.lab · NP 30054" },
+  extdns: { x: 496, y: 315, w: 180, h: 52, title: "external-dns · NP 30055", sub: "C2 → 10.43.66.66, web → .80.80" },
+  cmdns: { x: 692, y: 280, w: 96, h: 52, title: "range-mode", sub: "ConfigMap" },
+  fweb: { x: 840, y: 247, w: 170, h: 52, title: "fake-web :8080", sub: "svc fake-web 10.43.80.80:80" },
+  fc2: { x: 840, y: 320, w: 170, h: 52, title: "fake C2 :8066", sub: "svc fake-c2 10.43.66.66:80" },
+  fdash: { x: 1030, y: 283, w: 165, h: 56, title: "dashboard :8081", sub: "NodePort 30081 · /api" },
+  console: { x: 60, y: 620, w: 200, h: 60, title: "range-console", sub: "svc :8090 · NodePort 30090" },
+  kapi: { x: 60, y: 790, w: 200, h: 52, title: "k3s API server", sub: "console RBAC: CM, restart, logs" },
+  web01: { x: 500, y: 490, w: 170, h: 56, title: "web01 · nginx", sub: "10.43.200.31 · NP 30088" },
+  web02: { x: 740, y: 490, w: 170, h: 56, title: "web02 · HR app", sub: "10.43.200.32:8080" },
+  db01: { x: 980, y: 468, w: 200, h: 52, title: "db01 · PostgreSQL 16", sub: "hr.employees, hr.payroll" },
+  db02: { x: 980, y: 560, w: 200, h: 52, title: "db02 · MariaDB 11.4", sub: "crm.customers, crm.orders" },
+  dc01: { x: 560, y: 700, w: 190, h: 56, title: "dc01 · Samba AD DC", sub: "primary · CORP.LAB · .200.11" },
+  dc02: { x: 900, y: 700, w: 190, h: 56, title: "dc02 · Samba AD DC", sub: "joined dc01 · .200.12" },
+};
+const NAMESPACES = [
+  { x: 30, y: 205, w: 430, h: 345, label: "ns cyber-range", sub: "default-deny-egress + 4 allow rules" },
+  { x: 480, y: 205, w: 320, h: 215, label: "ns dns-system", sub: "no NetworkPolicy" },
+  { x: 820, y: 205, w: 390, h: 215, label: "ns fake-internet", sub: "1 pod, 3 listeners · deny-all-egress" },
+  { x: 480, y: 440, w: 730, h: 430, label: "ns corp", sub: "default-deny · intranet from 192.168.9.0/24" },
+  { x: 30, y: 570, w: 430, h: 175, label: "ns range-admin", sub: "range-scenarios CM · active: baseline-contained" },
+];
+const DISABLED = [
+  [790, 40, 138, "SOC-SEConion · off"], [935, 40, 138, "SOC-DASH · off"], [1080, 40, 138, "ATK-C2 · off"],
+  [790, 66, 138, "MGMT-JUMP · off"], [935, 66, 138, "MGMT-ORCH · off"], [1080, 66, 138, "MGMT-BKP · off"],
+  [790, 92, 138, "EP-CLEAN · off"], [935, 92, 283, "Tails · removed from library"],
+  [790, 118, 212, "SVC-DC → in-cluster corp dc01/dc02"], [1008, 118, 210, "EXT-INETSIM → ns fake-internet"],
+];
+const EDGES = {
+  "br-net": { pts: [[230, 56], [260, 56]], ends: ["browser", "vmnet8"] },
+  "ssh-net": { pts: [[230, 118], [245, 118], [245, 76], [260, 76]], ends: ["ssh", "vmnet8"] },
+  "np-console": { pts: [[385, 84], [385, 196], [18, 196], [18, 650], [60, 650]], ends: ["vmnet8", "console"] },
+  "np-sink": { pts: [[385, 84], [385, 196], [464, 196], [464, 398], [440, 398]], ends: ["vmnet8", "sink"] },
+  "np-fdash": { pts: [[385, 84], [385, 196], [1112, 196], [1112, 283]], ends: ["vmnet8", "fdash"] },
+  "np-web01": { pts: [[385, 84], [385, 196], [472, 196], [472, 430], [585, 430], [585, 490]], ends: ["vmnet8", "web01"] },
+  "net-kapi": { pts: [[345, 84], [345, 186], [26, 186], [26, 805], [60, 805]], ends: ["vmnet8", "kapi"] },
+  "pc-fw": { pts: [[200, 273], [270, 273]], ends: ["pc", "fw"] },
+  "fw-sink": { pts: [[355, 301], [355, 370]], ends: ["fw", "sink"] },
+  "pc-sinkip": { pts: [[125, 301], [125, 400]], ends: ["pc", "sinkip"] },
+  "fw-int": { pts: [[440, 273], [496, 273]], ends: ["fw", "intdns"] },
+  "fw-ext": { pts: [[440, 284], [488, 284], [488, 341], [496, 341]], ends: ["fw", "extdns"] },
+  "pc-c2": { pts: [[150, 245], [150, 229], [818, 229], [818, 346], [840, 346]], ends: ["pc", "fc2"] },
+  "pc-web": { pts: [[110, 245], [110, 236], [828, 236], [828, 273], [840, 273]], ends: ["pc", "fweb"] },
+  "web-dash": { pts: [[1010, 273], [1030, 300]], ends: ["fweb", "fdash"] },
+  "c2-dash": { pts: [[1010, 346], [1030, 324]], ends: ["fc2", "fdash"] },
+  "fdash-console": { pts: [[1112, 339], [1112, 424], [478, 424], [478, 655], [260, 655]], ends: ["fdash", "console"] },
+  "sink-console": { pts: [[270, 398], [235, 398], [235, 620]], ends: ["sink", "console"] },
+  "console-kapi": { pts: [[160, 680], [160, 790]], ends: ["console", "kapi"] },
+  "kapi-cmcr": { pts: [[260, 806], [355, 806], [355, 518]], ends: ["kapi", "cmcr"] },
+  "kapi-fw": { pts: [[260, 816], [450, 816], [450, 292], [440, 292]], ends: ["kapi", "fw"] },
+  "kapi-pc": { pts: [[60, 826], [40, 826], [40, 285], [50, 285]], ends: ["kapi", "pc"] },
+  "kapi-dns": { pts: [[260, 830], [486, 830], [486, 410], [586, 410], [586, 367]], ends: ["kapi", "extdns"] },
+  "kapi-cmdns": { pts: [[260, 830], [486, 830], [486, 410], [740, 410], [740, 332]], ends: ["kapi", "cmdns"] },
+  "lat-web01": { pts: [[200, 292], [250, 292], [250, 560], [585, 560], [585, 546]], ends: ["pc", "web01"], lateral: true },
+  "lat-dc01": { pts: [[200, 292], [250, 292], [250, 560], [520, 560], [520, 728], [560, 728]], ends: ["pc", "dc01"], lateral: true },
+  "lat-db01": { pts: [[200, 292], [250, 292], [250, 560], [700, 560], [700, 640], [1195, 640], [1195, 494], [1180, 494]], ends: ["pc", "db01"], lateral: true },
+  "web01-web02": { pts: [[670, 518], [740, 518]], ends: ["web01", "web02"] },
+  "web02-db01": { pts: [[910, 512], [945, 512], [945, 494], [980, 494]], ends: ["web02", "db01"] },
+  "web02-db02": { pts: [[910, 524], [945, 524], [945, 586], [980, 586]], ends: ["web02", "db02"] },
+  "dc-a": { pts: [[750, 722], [900, 722]], ends: ["dc01", "dc02"] },
+  "dc-b": { pts: [[900, 734], [750, 734]], ends: ["dc02", "dc01"] },
+};
+const SCENARIOS = [
+  { id: "on", name: "Sinkhole ON (contained)", note: "Live default: baseline-contained, SINKHOLE_ENABLED=true.",
+    steps: [
+      { title: "Beacon query", caption: "infected-pc reads MALICIOUS_DOMAIN=teq.xyz.com and sends an A query to firewall-sim on UDP 8053.",
+        flows: [{ e: "pc-fw", k: "threat", label: "A? teq.xyz.com", d: 0.7 }],
+        log: ["[firewall-sim] Request: [10.42.0.141] (udp) / 'teq.xyz.com.' (A)"] },
+      { title: "Intercept + capture", caption: "SINKHOLE_ENABLED=true, so firewall-sim answers 10.255.255.10 and POSTs a dns-intercept record to sinkhole:8080/capture.",
+        flows: [{ e: "pc-fw", k: "contained", rev: true, label: "10.255.255.10", d: 0.5 }, { e: "fw-sink", k: "contained", s: 0.3, d: 0.5, label: "POST /capture" }],
+        log: ["[firewall-sim] [SINKHOLE] intercepted teq.xyz.com -> 10.255.255.10 (contained)", "[sinkhole] CAPTURE POST /capture domain=teq.xyz.com"] },
+      { title: "Callback blocked", caption: "infected-pc POSTs /checkin to 10.255.255.10:80. default-deny-egress has no rule for that address — this is the containment.",
+        flows: [{ e: "pc-sinkip", k: "threat", blocked: true, label: "POST /checkin", d: 0.7 }],
+        log: ["[infected-pc] [CONTAINED] teq.xyz.com -> 10.255.255.10 (SINKHOLE). C2 check-in blocked."] },
+      { title: "Benign lookup", caption: "Each cycle also browses www.example.com. firewall-sim forwards it to external-dns, which answers fake-web 10.43.80.80.",
+        flows: [{ e: "pc-fw", k: "net", d: 0.25, label: "A? www.example.com" }, { e: "fw-ext", k: "net", s: 0.25, d: 0.25 }, { e: "fw-ext", k: "net", rev: true, s: 0.5, d: 0.25, label: "10.43.80.80" }, { e: "pc-fw", k: "net", rev: true, s: 0.75, d: 0.25 }],
+        log: ["[external-dns] resolve www.example.com -> 10.43.80.80", "[firewall-sim] [FORWARD] www.example.com via external-dns"] },
+      { title: "Fake web fetch", caption: "infected-pc GETs http://www.example.com/ from fake-web. The catch-all server logs it; nothing reaches the real internet.",
+        flows: [{ e: "pc-web", k: "net", d: 0.45, label: "GET /" }, { e: "pc-web", k: "net", rev: true, s: 0.5, d: 0.45, label: "HTTP 200" }, { e: "web-dash", k: "evidence", s: 0.45, d: 0.3 }],
+        log: ["[fake-internet] WEB GET http://www.example.com/ from 10.42.0.141"] },
+      { title: "Evidence paths", caption: "Captures show on :30080 and the console pulls /api/captures. Pod stdout reaches the console through the k3s API.",
+        flows: [{ e: "np-sink", k: "evidence", rev: true, d: 0.6, label: "30080" }, { e: "br-net", k: "evidence", rev: true, s: 0.6, d: 0.2 }, { e: "sink-console", k: "evidence", d: 0.55, label: "/api/captures" }, { e: "kapi-pc", k: "evidence", rev: true, d: 0.55, label: "stdout" }, { e: "console-kapi", k: "evidence", rev: true, s: 0.55, d: 0.4, label: "pods/log" }] },
+    ]},
+  { id: "off", name: "Sinkhole OFF (uncontained)", note: "Launch Baseline - sinkhole OFF in the console. Not the live mode right now.",
+    steps: [
+      { title: "Patch ConfigMaps", caption: "The operator launches the uncontained scenario at :30090. The console PATCHes range-mode (SINKHOLE_ENABLED=false) via the k3s API.",
+        flows: [{ e: "br-net", k: "control", d: 0.15 }, { e: "np-console", k: "control", s: 0.15, d: 0.3, label: "launch" }, { e: "console-kapi", k: "control", s: 0.45, d: 0.2 }, { e: "kapi-cmcr", k: "control", s: 0.65, d: 0.3, label: "PATCH" }, { e: "kapi-cmdns", k: "control", s: 0.65, d: 0.3 }] },
+      { title: "Rollout restart", caption: "It PATCHes a restartedAt annotation on internal-dns, external-dns, firewall-sim and infected-pc.",
+        flows: [{ e: "console-kapi", k: "control", d: 0.3 }, { e: "kapi-fw", k: "control", s: 0.3, d: 0.5, label: "restart" }, { e: "kapi-pc", k: "control", s: 0.3, d: 0.5 }, { e: "kapi-dns", k: "control", s: 0.3, d: 0.5 }] },
+      { title: "Forward to external-dns", caption: "The same beacon arrives, but firewall-sim now forwards teq.xyz.com to external-dns and raises an ALERT.",
+        flows: [{ e: "pc-fw", k: "threat", d: 0.45, label: "A? teq.xyz.com" }, { e: "fw-ext", k: "threat", s: 0.45, d: 0.45 }],
+        log: ["[firewall-sim] [ALERT] malicious teq.xyz.com forwarded via EXTERNAL -> 10.43.66.66"] },
+      { title: "Resolves to fake C2", caption: "external-dns answers the fake C2 ClusterIP 10.43.66.66. 203.0.113.66 is only a log label.",
+        flows: [{ e: "fw-ext", k: "threat", rev: true, d: 0.45, label: "10.43.66.66" }, { e: "pc-fw", k: "threat", rev: true, s: 0.45, d: 0.45 }],
+        log: ["[external-dns] resolve teq.xyz.com -> 10.43.66.66 (served by fake-internet)"] },
+      { title: "C2 check-in", caption: "infected-pc POSTs /checkin to 10.43.66.66:80. Fake C2 records it and returns an inert sleep task.",
+        flows: [{ e: "pc-c2", k: "threat", d: 0.45, label: "POST /checkin" }, { e: "pc-c2", k: "threat", rev: true, s: 0.5, d: 0.45, label: "task: sleep" }, { e: "c2-dash", k: "evidence", s: 0.45, d: 0.3 }],
+        log: ["[infected-pc] [UNCONTAINED] teq.xyz.com -> 10.43.66.66. REACHED fake C2, got task 'sleep'"] },
+      { title: "Evidence paths", caption: "Check-ins show on :30081 and the console pulls /api/checkins. fake-internet has deny-all-egress.",
+        flows: [{ e: "np-fdash", k: "evidence", rev: true, d: 0.6, label: "30081" }, { e: "br-net", k: "evidence", rev: true, s: 0.6, d: 0.2 }, { e: "fdash-console", k: "evidence", d: 0.6, label: "/api/checkins" }] },
+    ]},
+  { id: "lateral", name: "Lateral movement (opt-in)", note: "corp-lateral.yaml is NOT applied. Dashed paths exist only after a manual kubectl apply.",
+    steps: [
+      { title: "Enable corp-lateral", caption: "An admin applies manifests/corp-lateral.yaml over SSH. The console's RBAC cannot do this.",
+        flows: [{ e: "ssh-net", k: "control", d: 0.2 }, { e: "net-kapi", k: "control", s: 0.2, d: 0.6, label: "kubectl apply" }] },
+      { title: "Recon DNS", caption: "dc01.corp.lab is an internal zone, so firewall-sim forwards it to internal-dns (10.43.200.11).",
+        flows: [{ e: "pc-fw", k: "net", d: 0.25, label: "A? dc01.corp.lab" }, { e: "fw-int", k: "net", s: 0.25, d: 0.25 }, { e: "fw-int", k: "net", rev: true, s: 0.5, d: 0.25, label: "10.43.200.11" }, { e: "pc-fw", k: "net", rev: true, s: 0.75, d: 0.25 }] },
+      { title: "AD recon", caption: "LDAP 389, Kerberos 88 and SMB 445 against dc01/dc02. Kerberoasting surface: svc-sql.",
+        flows: [{ e: "lat-dc01", k: "threat", d: 0.8, label: "389 / 88 / 445" }] },
+      { title: "Data targets", caption: "PostgreSQL 5432 on db01 (hr.payroll), MariaDB 3306 on db02, HTTP on web01/web02.",
+        flows: [{ e: "lat-db01", k: "threat", d: 0.8, label: "5432 hr.payroll" }, { e: "lat-web01", k: "threat", s: 0.1, d: 0.6, label: "HTTP 80" }] },
+      { title: "C2 still contained", caption: "corp-lateral is narrow. With the sinkhole ON the off-cluster callback stays denied.",
+        flows: [{ e: "pc-sinkip", k: "threat", blocked: true, d: 0.7, label: "POST /checkin" }] },
+    ]},
+  { id: "corp", name: "Corp 3-tier + AD replication", note: "Always-on corp.lab services. Independent of the sinkhole mode.",
+    steps: [
+      { title: "Intranet request", caption: "The host browser opens http://192.168.9.50:30088/. Only 192.168.9.0/24 is admitted.",
+        flows: [{ e: "br-net", k: "net", d: 0.2 }, { e: "np-web01", k: "net", s: 0.2, d: 0.7, label: "GET /app/" }] },
+      { title: "Proxy to app tier", caption: "web01 (nginx) proxies /app/ to web02:8080.",
+        flows: [{ e: "web01-web02", k: "net", d: 0.6, label: "proxy_pass" }] },
+      { title: "Query both databases", caption: "web02 reads hr.employees from db01 and customers from db02 with read-only accounts.",
+        flows: [{ e: "web02-db01", k: "net", d: 0.4, label: "SELECT hr.employees" }, { e: "web02-db02", k: "net", d: 0.4, label: "SELECT customers" }, { e: "web02-db01", k: "net", rev: true, s: 0.5, d: 0.4 }, { e: "web02-db02", k: "net", rev: true, s: 0.5, d: 0.4 }] },
+      { title: "Page back to browser", caption: "The HR portal HTML returns through web01 to the host.",
+        flows: [{ e: "web01-web02", k: "net", rev: true, d: 0.3 }, { e: "np-web01", k: "net", rev: true, s: 0.3, d: 0.5, label: "HTML" }, { e: "br-net", k: "net", rev: true, s: 0.8, d: 0.2 }] },
+      { title: "AD replication", caption: "dc02 joined dc01. DRS runs both ways over fixed ClusterIPs. samba-tool drs showrepl = ALL GOOD.",
+        flows: [{ e: "dc-a", k: "net", d: 0.5, label: "DRS" }, { e: "dc-b", k: "net", s: 0.45, d: 0.5, label: "DRS" }] },
+    ]},
+];
+
+function ptsAttr(pts) { return pts.map(p => p.join(",")).join(" "); }
+function pointAt(pts, frac) {
+  const segs = []; let total = 0;
+  for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]); segs.push(l); total += l; }
+  let t = Math.max(0, Math.min(1, frac)) * total;
+  for (let i = 0; i < segs.length; i++) {
+    if (t <= segs[i] || i === segs.length - 1) {
+      const r = segs[i] === 0 ? 0 : t / segs[i];
+      return [pts[i][0] + (pts[i+1][0]-pts[i][0])*r, pts[i][1] + (pts[i+1][1]-pts[i][1])*r];
+    }
+    t -= segs[i];
+  }
+  return pts[pts.length-1];
+}
+function el(tag, attrs, text) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+let scenarioId = "on", stepIdx = 0, playing = true, t = 0;
+const svg = document.getElementById("svg");
+
+function sc() { return SCENARIOS.find(s => s.id === scenarioId); }
+function step() { return sc().steps[stepIdx]; }
+
+function drawFrame() {
+  const s = step();
+  const activeE = new Set(s.flows.map(f => f.e));
+  const activeN = new Set();
+  s.flows.forEach(f => EDGES[f.e].ends.forEach(n => activeN.add(n)));
+  svg.replaceChildren();
+  const defs = el("defs");
+  for (const [k, c] of Object.entries(KIND)) {
+    const m = el("marker", { id: "arr-"+k, viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+    m.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: c }));
+    defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+  svg.appendChild(el("rect", { x: 14, y: 10, width: 1212, height: 142, rx: 8, fill: "none", stroke: "#8a93a6" }));
+  svg.appendChild(el("text", { x: 24, y: 28, fill: "#e6e6e6", "font-size": 12, "font-weight": 600 }, "Windows 11 host · VMware Workstation 26"));
+  svg.appendChild(el("text", { x: 790, y: 28, fill: "#9aa4b2", "font-size": 11 }, "inventory VMs: disabled or replaced"));
+  DISABLED.forEach(([x,y,w,label]) => {
+    const g = el("g", { opacity: ".55" });
+    g.appendChild(el("rect", { x, y, width: w, height: 22, rx: 4, fill: "#1a2036", stroke: "#3a4560", "stroke-dasharray": "3 3" }));
+    g.appendChild(el("text", { x: x+8, y: y+15, fill: "#9aa4b2", "font-size": 10.5 }, label));
+    svg.appendChild(g);
+  });
+  svg.appendChild(el("rect", { x: 14, y: 165, width: 1212, height: 718, rx: 8, fill: "none", stroke: "#8a93a6", "stroke-width": 1.5 }));
+  svg.appendChild(el("text", { x: 1216, y: 182, fill: "#e6e6e6", "font-size": 12, "font-weight": 600, "text-anchor": "end" }, "range-host VM · 192.168.9.50 on VMnet8 · k3s"));
+  NAMESPACES.forEach(ns => {
+    const g = el("g");
+    g.appendChild(el("rect", { x: ns.x, y: ns.y, width: ns.w, height: ns.h, rx: 6, fill: "#12182c", stroke: "#3a4560" }));
+    g.appendChild(el("text", { x: ns.x+10, y: ns.y+15, fill: "#c8d0dc", "font-size": 11.5, "font-weight": 600 }, ns.label));
+    g.appendChild(el("text", { x: ns.x+ns.w-10, y: ns.y+15, fill: "#9aa4b2", "font-size": 10, "text-anchor": "end" }, ns.sub));
+    svg.appendChild(g);
+  });
+  svg.appendChild(el("rect", { x: 30, y: 760, width: 430, height: 110, rx: 6, fill: "none", stroke: "#3a4560", "stroke-dasharray": "4 3" }));
+  svg.appendChild(el("text", { x: 40, y: 775, fill: "#c8d0dc", "font-size": 11.5, "font-weight": 600 }, "k3s control plane"));
+  Object.entries(EDGES).forEach(([id, e]) => {
+    if (activeE.has(id)) return;
+    svg.appendChild(el("polyline", { points: ptsAttr(e.pts), fill: "none", stroke: e.lateral && scenarioId === "lateral" ? "#ff7a7a" : "#3a4560", "stroke-width": 1, "stroke-dasharray": e.lateral ? "5 4" : undefined, "stroke-opacity": e.lateral && scenarioId === "lateral" ? .55 : 1 }));
+  });
+  s.flows.forEach((f, i) => {
+    const e = EDGES[f.e];
+    const pts = f.rev ? [...e.pts].reverse() : e.pts;
+    svg.appendChild(el("polyline", { points: ptsAttr(pts), fill: "none", stroke: KIND[f.k], "stroke-width": 2, "stroke-opacity": .85, "stroke-dasharray": e.lateral ? "6 4" : undefined, "marker-end": "url(#arr-"+f.k+")" }));
+  });
+  Object.entries(NODES).forEach(([id, n]) => {
+    const active = activeN.has(id);
+    const dim = n.state === "off";
+    const dashed = n.state === "off" || n.state === "warn" || n.state === "blocked";
+    const stroke = active ? "#5cd6ff" : n.state === "blocked" ? "#ff7a7a" : "#8a93a6";
+    const g = el("g", { opacity: dim ? ".55" : "1" });
+    g.appendChild(el("rect", { x: n.x, y: n.y, width: n.w, height: n.h, rx: 6, fill: "#161d34", stroke, "stroke-width": active ? 2 : 1, "stroke-dasharray": dashed && !active ? "4 3" : undefined }));
+    const sub = id === "cmcr" && scenarioId === "off" ? "SINKHOLE_ENABLED=false" : n.sub;
+    g.appendChild(el("text", { x: n.x+10, y: n.y+n.h/2-3, fill: dim ? "#9aa4b2" : "#e6e6e6", "font-size": 12, "font-weight": 600 }, n.title));
+    g.appendChild(el("text", { x: n.x+10, y: n.y+n.h/2+12, fill: "#9aa4b2", "font-size": 10 }, sub));
+    svg.appendChild(g);
+  });
+  svg.appendChild(el("text", { x: 258, y: 555, fill: scenarioId === "lateral" ? "#ff7a7a" : "#9aa4b2", "font-size": 10 }, "corp-lateral (opt-in, not applied)"));
+  s.flows.forEach(f => {
+    const start = f.s ?? 0, dur = f.d ?? 0.55, p = (t - start) / dur;
+    if (p < 0 || p > 1.15) return;
+    const e = EDGES[f.e];
+    const pts = f.rev ? [...e.pts].reverse() : e.pts;
+    const stop = f.blocked ? 0.78 : 1;
+    const pos = pointAt(pts, Math.min(p, 1) * stop);
+    const halted = f.blocked && p >= 1;
+    svg.appendChild(el("circle", { cx: pos[0], cy: pos[1], r: 5.5, fill: KIND[f.k], stroke: "#0b1021", "stroke-width": 1.5 }));
+    if (halted) {
+      const g = el("g", { stroke: "#ff7a7a", "stroke-width": 2.5 });
+      g.appendChild(el("line", { x1: pos[0]-8, y1: pos[1]+6, x2: pos[0]+8, y2: pos[1]+22 }));
+      g.appendChild(el("line", { x1: pos[0]+8, y1: pos[1]+6, x2: pos[0]-8, y2: pos[1]+22 }));
+      svg.appendChild(g);
+    }
+    if (f.label) svg.appendChild(el("text", { x: pos[0]+9, y: pos[1]-8, fill: "#e6e6e6", "font-size": 10.5, "font-family": "ui-monospace, Consolas, monospace" }, halted ? f.label + " — denied" : f.label));
+  });
+}
+
+function renderChrome() {
+  const s = sc();
+  document.getElementById("pills").innerHTML = SCENARIOS.map(x =>
+    `<button class="pill${x.id===scenarioId?" on":""}" data-id="${x.id}">${x.name}</button>`).join("");
+  document.getElementById("pills").onclick = ev => {
+    const id = ev.target.dataset.id; if (!id) return;
+    scenarioId = id; stepIdx = 0; t = 0; renderChrome();
+  };
+  document.getElementById("scenario-note").textContent = s.note;
+  document.getElementById("title").textContent = step().title;
+  document.getElementById("caption").textContent = step().caption;
+  document.getElementById("stepn").textContent = `Step ${stepIdx+1} of ${s.steps.length}` + (playing ? " · auto-advancing" : " · paused");
+  document.getElementById("progress").textContent = s.name;
+  const log = document.getElementById("log");
+  if (step().log) { log.hidden = false; log.textContent = step().log.join("\n"); }
+  else log.hidden = true;
+  document.getElementById("steps").innerHTML = s.steps.map((st, i) =>
+    `<li class="${i===stepIdx?"on":""}" data-i="${i}">${i+1}. ${st.title}</li>`).join("");
+  document.getElementById("steps").onclick = ev => {
+    const i = ev.target.dataset.i; if (i == null) return;
+    stepIdx = +i; t = 0; renderChrome();
+  };
+  document.getElementById("play").textContent = playing ? "Pause" : "Play";
+}
+
+document.getElementById("play").onclick = () => { playing = !playing; renderChrome(); };
+document.getElementById("prev").onclick = () => { stepIdx = (stepIdx - 1 + sc().steps.length) % sc().steps.length; t = 0; renderChrome(); };
+document.getElementById("next").onclick = () => { stepIdx = (stepIdx + 1) % sc().steps.length; t = 0; renderChrome(); };
+
+const STEP_MS = 3200, HOLD = 0.4;
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(50, now - last); last = now;
+  t += dt / STEP_MS;
+  if (t >= 1 + HOLD) { t = 0; if (playing) { stepIdx = (stepIdx + 1) % sc().steps.length; renderChrome(); } }
+  drawFrame();
+  requestAnimationFrame(tick);
+}
+renderChrome();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
