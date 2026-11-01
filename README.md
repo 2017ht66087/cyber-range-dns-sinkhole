@@ -42,8 +42,8 @@ in-cluster `corp` and `fake-internet` namespaces. See [k8s/README.md](k8s/README
 for deploy steps.
 
 **Playable animation (play / pause / step, four scenarios):**
-open [`docs/index.html`](docs/index.html) from this repo (clone or download the file, then open it in a browser).
-GitHub Pages is not enabled: this repository is **private** and the current GitHub plan does not host Pages on private repos. Make the repo public, or use GitHub Pro, then Pages can serve it at `https://2017ht66087.github.io/cyber-range-dns-sinkhole/`.
+https://2017ht66087.github.io/cyber-range-dns-sinkhole/
+(also [`docs/index.html`](docs/index.html) if you want to open it offline).
 
 ## Architecture
 
